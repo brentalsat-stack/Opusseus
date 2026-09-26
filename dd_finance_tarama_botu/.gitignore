@@ -1,0 +1,9 @@
+sinyaller.csv
+kurulumlar.json
+gunluk_sayac.json
+istatistik.csv
+raporlar/
+cache/
+demo/
+__pycache__/
+*.tmp
