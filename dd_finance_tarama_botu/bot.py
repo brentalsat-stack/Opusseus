@@ -68,6 +68,11 @@ KRIPTO_HARIC = ["USDT", "USDC", "FDUSD", "TUSD", "DAI", "USDP", "BUSD", "USDE", 
                 "WBTC", "WETH", "WBETH", "STETH", "BETH", "BFUSD", "XUSD", "PAXG", "XAUT"]
 FOREX = ["EUR/USD", "GBP/USD", "USD/JPY", "AUD/USD", "USD/CHF", "USD/CAD", "GBP/JPY"]
 METALLER = ["XAU/USD", "XAG/USD"]
+# Forex/metal hafta sonu kapanışı (UTC). Twelve Data hafta sonu da mum verebilir;
+# bu aralıktaki mumlar analizden çıkarılır ve piyasa kapalı sayılır.
+FOREX_KAPANIS_SAAT = 21     # Cuma (kış saatinde 22)
+FOREX_ACILIS_SAAT = 21      # Pazar (kış saatinde 22)
+PLAN_DISI_BEKLEME_GUN = 7   # Planınızda olmayan sembol bu kadar gün atlanır (kredi harcamaz)
 
 # --- ZAMAN DİLİMLERİ ---------------------------------------------------------
 ZAMAN_DILIMI_ESLEME = {"1day": "4h", "4h": "1h", "1h": "15min"}   # POI dilimi -> onay dilimi
@@ -223,6 +228,7 @@ def yollari_ayarla(dizin):
     YOLLAR["raporlar"] = os.path.join(dizin, "raporlar")
     YOLLAR["cache"] = os.path.join(dizin, "cache")
     YOLLAR["kripto_listesi"] = os.path.join(dizin, "kripto_listesi.json")
+    YOLLAR["plan_disi"] = os.path.join(dizin, "plan_disi_semboller.json")
 
 
 yollari_ayarla(TEMEL_DIZIN)
@@ -320,6 +326,27 @@ def json_yaz(yol, veri):
     with open(gecici, "w", encoding="utf-8") as f:
         json.dump(veri, f, ensure_ascii=False, indent=1)
     os.replace(gecici, yol)
+
+
+def forex_hafta_sonu_mu(dt):
+    """Forex/metal piyasası bu anda kapalı mı? (Cuma FOREX_KAPANIS_SAAT - Pazar FOREX_ACILIS_SAAT, UTC)"""
+    g = dt.weekday()
+    return g == 5 or (g == 4 and dt.hour >= FOREX_KAPANIS_SAAT) or (g == 6 and dt.hour < FOREX_ACILIS_SAAT)
+
+
+def hafta_sonu_mumlarini_ayikla(mumlar, dilim):
+    """Tamamı hafta sonu kapanışına düşen forex/metal mumlarını çıkarır
+    (hafta sonu kotasyonları likit değildir; sahte SFP/swing üretir)."""
+    dk = DILIM_DAKIKA.get(dilim, 60)
+    sonuc = []
+    for m in mumlar:
+        if dk >= 1440:
+            if m["dt"].weekday() == 5:
+                continue
+        elif forex_hafta_sonu_mu(m["dt"]) and forex_hafta_sonu_mu(m["dt"] + datetime.timedelta(minutes=dk - 1)):
+            continue
+        sonuc.append(m)
+    return sonuc
 
 
 def kripto_mu(sembol):
@@ -497,6 +524,7 @@ class IstekYoneticisi:
         self.son_istek = 0.0
         self.bu_tarama = 0
         self.hatalar = []
+        self.plan_disi = set()
 
     def kalan(self):
         return max(0, GUNLUK_LIMIT - self.sayac["adet"])
@@ -529,6 +557,8 @@ class IstekYoneticisi:
                     time.sleep(LIMIT_BEKLEME_SN)
                     continue
                 self.hatalar.append("%s %s: %s" % (params.get("symbol"), params.get("interval"), mesaj))
+                if "plan" in mesaj.lower() or "upgrad" in mesaj.lower():
+                    self.plan_disi.add(params.get("symbol"))
                 print("  API hatası: %s" % mesaj)
                 return None
             return veri
@@ -1875,6 +1905,8 @@ def mitigation_bul(mumlar, atrs, ic_swingler, sfplar):
         l1, h1, hl = dizi[x], dizi[x + 1], dizi[x + 2]
         if l1["tip"] != "L" or h1["tip"] != "H" or hl["tip"] != "L":
             continue
+        if not (h1["fiyat"] > hl["fiyat"] > l1["fiyat"]):
+            continue  # swing sırası tutarsız: mitigation yapısı yok
         a = atrs[hl["i"]]
         if hl["fiyat"] - l1["fiyat"] < MITIGATION_MIN_FARK_ATR * a:
             continue  # eşit dip = likidite havuzu, mitigation değil
@@ -2515,6 +2547,12 @@ def kurulum_tamamla(ctx, k):
     """Risk + puan + veto. k['asama'] sinyal/retest_bekliyor ise tam hesap yapılır."""
     if k["giris"] is None or k["stop_ref"] is None:
         return k
+    if k["stop_ref"] >= k["giris"]:
+        k["veto"] = "geçersiz yapı: stop referansı girişin ötesinde değil"
+        if k["asama"] == "sinyal":
+            k["asama"] = "izleme"
+        k["notlar"].append("veto: " + k["veto"])
+        return k
     ltf = ctx["ltf"]
     a = ltf["atrs"][-1]
     # Giriş hiçbir zaman bir likidite seviyesi değildir
@@ -2667,7 +2705,10 @@ def poi_motoru(ctx, poi):
         ev = next((o for o in onaylar if t <= o["i"] <= t + ONAY_MAX_MUM and o["i"] < iptal_lt), None)
         if ev is None:
             if N - 1 - t < ONAY_MAX_MUM and iptal_lt >= N:
-                son_durum = ("onay_bekliyor", t, None)
+                if m[-1]["kapanis"] <= poi["ust"] + htf_a:
+                    son_durum = ("onay_bekliyor", t, None)
+                else:
+                    son_durum = None  # fiyat CHoCH olmadan bölgeden uzaklaştı; POI bekleniyor
                 break
             k["gecmis"].append({"durum": "iptal", "sebep": "onay gelmedi", "i": t})
             son_durum = ("iptal", t, "onay gelmedi (ONAY_MAX_MUM doldu)")
@@ -3746,6 +3787,8 @@ def analiz_dilimleri(eslesmeler):
 
 def sembol_tara(sembol, eslesmeler, kaynak, simdi, top, oto_notlar, ham):
     """Bir sembol için veri -> analiz -> kurulumlar -> istatistik -> özet."""
+    if not kripto_mu(sembol) and forex_hafta_sonu_mu(simdi):
+        return {"hata": "piyasa kapalı (hafta sonu)"}
     for d in istek_dilimleri(eslesmeler):
         if d in ham:
             continue
@@ -3755,6 +3798,8 @@ def sembol_tara(sembol, eslesmeler, kaynak, simdi, top, oto_notlar, ham):
         ham[d] = v
     if not kripto_mu(sembol) and simdi - ham["1h"][-1]["dt"] > datetime.timedelta(hours=3):
         return {"hata": "piyasa kapalı (son mum %s)" % zaman_yaz(ham["1h"][-1]["dt"])}
+    if not kripto_mu(sembol):
+        ham = {d: hafta_sonu_mumlarini_ayikla(v, d) for d, v in ham.items()}
     kapali = {d: kapali_mumlar(v, d, simdi) for d, v in ham.items()}
     for hedef, (kd, kat) in TURETILMIS_DILIMLER.items():
         if kd in ham:
@@ -3834,7 +3879,7 @@ def kurulum_tekillestir(kurulumlar):
             ayni = next((x for x in sonuc if x["yon"] == k["yon"] and x["asama"] == k["asama"] and x.get("giris_alt") is not None
                          and x.get("zaman") == k.get("zaman") and ortust(x["giris_alt"], x["giris_ust"], k["giris_alt"], k["giris_ust"])), None)
             if ayni is not None:
-                if k["tip"] not in ayni.setdefault("birlesen", []):
+                if k["tip"] != ayni["tip"] and k["tip"] not in ayni.setdefault("birlesen", []):
                     ayni["birlesen"].append(k["tip"])
                     ayni["notlar"].append("aynı bölgede ayrıca: %s" % k["tip"])
                 continue
@@ -3906,6 +3951,21 @@ def tarama(kaynak=None):
     if not isinstance(hafiza, dict):
         hafiza = {}
     semboller = kripto_listesi(simdi, cevrimdisi=kaynak is not None) + FOREX + METALLER
+    # Planınızda olmayan semboller (ör. ücretsiz planda XAG/USD) bir süre atlanır; kredi harcanmaz
+    plan_disi = json_oku(YOLLAR["plan_disi"], {})
+    if not isinstance(plan_disi, dict):
+        plan_disi = {}
+    plan_atlanan = []
+    for s, tarih in list(plan_disi.items()):
+        try:
+            gecen = (simdi - datetime.datetime.strptime(tarih, "%Y-%m-%d")).days
+        except (TypeError, ValueError):
+            gecen = PLAN_DISI_BEKLEME_GUN
+        if gecen >= PLAN_DISI_BEKLEME_GUN:
+            del plan_disi[s]
+        elif s in semboller:
+            semboller.remove(s)
+            plan_atlanan.append(s)
     eslesmeler = eslesmeleri_coz()
     print("=" * 60)
     print("DD Finance PA Tarama | %s UTC" % zaman_yaz(simdi))
@@ -3927,6 +3987,8 @@ def tarama(kaynak=None):
     oto_notlar, tum, ozetler, atlanan, taranan, uyarilar = [], [], [], [], [], []
     ham_veri = {}
     turlar = [(yuksek if iki_tur else eslesmeler, semboller)]
+    for s in plan_atlanan:
+        atlanan.append((s, "Twelve Data planınızda yok (%d gün atlanıyor)" % PLAN_DISI_BEKLEME_GUN))
     limit_doldu = False
     for tur_no in range(2):
         if tur_no == 1:
@@ -3976,6 +4038,13 @@ def tarama(kaynak=None):
     except Exception as e:
         print("kurulumlar.json yazılamadı: %s" % e)
     gunluk_sayac_kaydet(sayac)
+    if yonetici.plan_disi:
+        for s in yonetici.plan_disi:
+            plan_disi[s] = simdi.strftime("%Y-%m-%d")
+        try:
+            json_yaz(YOLLAR["plan_disi"], plan_disi)
+        except Exception:
+            pass
     rapor = rapor_yaz(simdi, {"taranan": taranan, "atlanan": atlanan}, yazilan, tum, ozetler, oto_notlar,
                       yonetici, uyarilar)
     # --- Ekran özeti ---
@@ -4289,6 +4358,15 @@ def testleri_calistir():
     b = mum_birlestir(m4, 3, 240)
     kontrol("Mum birleştirme: 4h x3 -> 12h (açılış ilk, kapanış son, max/min)",
             len(b) == 2 and b[0]["acilis"] == 100 and b[0]["kapanis"] == 102.5 and b[0]["yuksek"] == 103 and b[0]["dusuk"] == 99)
+
+    # --- Forex hafta sonu ---
+    cmt = datetime.datetime(2026, 9, 26, 5, 0)
+    kontrol("Forex hafta sonu: Cumartesi kapalı, Pazartesi açık, Cuma 21:00 kapalı",
+            forex_hafta_sonu_mu(cmt) and not forex_hafta_sonu_mu(datetime.datetime(2026, 9, 28, 9, 0))
+            and forex_hafta_sonu_mu(datetime.datetime(2026, 9, 25, 21, 0)))
+    hm = [{"dt": datetime.datetime(2026, 9, 25, 20, 0)}, {"dt": cmt}, {"dt": datetime.datetime(2026, 9, 27, 21, 0)}]
+    kontrol("Forex hafta sonu mumları analizden çıkarılıyor",
+            [x["dt"] for x in hafta_sonu_mumlarini_ayikla(hm, "1h")] == [hm[0]["dt"], hm[2]["dt"]])
 
     print("-" * 60)
     print("%d/%d test geçti." % (sum(sonuclar), len(sonuclar)))

@@ -37,6 +37,7 @@ manuel açıp kapatır. Eğitim amaçlıdır; yatırım tavsiyesi değildir.
 | `istatistik.csv` | Konsept bazında dönüş ve 2R başarı oranları (ek API isteği yapmaz) |
 | `raporlar/rapor_YYYY-MM-DD_HH-MM.txt` | Tarama raporu (eski rapor asla ezilmez) |
 | `cache/` | Kısa süreli mum önbelleği (aynı veriyi tekrar çekmemek için) |
+| `plan_disi_semboller.json` | Twelve Data planınızda olmayan semboller (ör. ücretsiz planda XAG/USD); `PLAN_DISI_BEKLEME_GUN` gün atlanır |
 | `kripto_listesi.json` | Hacme göre seçilen kripto çiftleri ve 24s hacimleri (günlük yenilenir) |
 
 ## Kripto listesi (hacme göre otomatik)
@@ -63,6 +64,10 @@ Daha sık tarama için `KRIPTO_SAYISI`'nı düşürün (ör. 20 → 87 istek, �
 açılırsa sembol başına 4 istek olur; bütçe yetmezse 15min yalnızca aday çıkan sembollerde ikinci turda çalışır.
 
 ## Uygulama notları (şartnamenin yorumlandığı yerler)
+
+- **Forex/metal hafta sonu:** Twelve Data hafta sonu da (likit olmayan) forex kotasyonu verebilir. Cuma
+  `FOREX_KAPANIS_SAAT` – Pazar `FOREX_ACILIS_SAAT` (UTC) arası piyasa kapalı sayılır: tarama yapılmaz (istek
+  harcanmaz) ve bu aralığa düşen mumlar analizden çıkarılır. Kış saatinde her ikisini 22 yapın.
 
 - **İki yön tek kural:** Short kurulumlar, fiyat ekseni ters çevrilmiş (ayna) mumlarda long kurallarıyla
   aranır ve sonuçlar geri çevrilir. Böylece long ve short için birebir aynı kurallar geçerlidir.
