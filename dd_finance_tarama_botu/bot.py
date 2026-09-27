@@ -49,7 +49,23 @@ DONGU_DAKIKA = 0            # 0 = tek tarama; >0 = belirtilen aralıkla tekrar
 ISTEK_ZAMAN_ASIMI_SN = 30   # HTTP zaman aşımı
 
 # --- SEMBOLLER ---------------------------------------------------------------
+# Kripto listesi günde bir kez 24 saatlik hacme göre otomatik belirlenir
+# (Binance USDT çiftleri -> Twelve Data'da X/USD karşılığı olanlar). Bu işlem
+# Twelve Data kredisi HARCAMAZ. KRIPTO her zaman listede tutulur.
 KRIPTO = ["BTC/USD", "ETH/USD", "SOL/USD", "BNB/USD", "XRP/USD"]
+KRIPTO_OTOMATIK = True          # False -> yalnızca KRIPTO + KRIPTO_SABIT kullanılır
+KRIPTO_SAYISI = 30              # Taranacak toplam kripto çifti
+KRIPTO_LISTE_YENILEME_SAAT = 24 # Hacim listesi bu aralıkla yenilenir
+# Otomatik liste alınamazsa kullanılacak yedek liste (hacmi yüksek çiftler)
+KRIPTO_SABIT = ["BTC/USD", "ETH/USD", "SOL/USD", "BNB/USD", "XRP/USD", "DOGE/USD", "ADA/USD",
+                "TRX/USD", "AVAX/USD", "LINK/USD", "SUI/USD", "LTC/USD", "DOT/USD", "NEAR/USD",
+                "UNI/USD", "AAVE/USD", "BCH/USD", "PEPE/USD", "TON/USD", "APT/USD", "ARB/USD",
+                "FIL/USD", "ENA/USD", "WLD/USD", "TAO/USD", "OP/USD", "INJ/USD", "ETC/USD",
+                "HBAR/USD", "ZEC/USD"]
+# Hacim listesinden çıkarılanlar: stablecoin, wrapped/staked, altın tokenları
+KRIPTO_HARIC = ["USDT", "USDC", "FDUSD", "TUSD", "DAI", "USDP", "BUSD", "USDE", "USD1", "PYUSD",
+                "RLUSD", "USDD", "EUR", "EURI", "AEUR", "TRY", "BRL", "GBP", "JPY",
+                "WBTC", "WETH", "WBETH", "STETH", "BETH", "BFUSD", "XUSD", "PAXG", "XAUT"]
 FOREX = ["EUR/USD", "GBP/USD", "USD/JPY", "AUD/USD", "USD/CHF", "USD/CAD", "GBP/JPY"]
 METALLER = ["XAU/USD", "XAG/USD"]
 
@@ -206,6 +222,7 @@ def yollari_ayarla(dizin):
     YOLLAR["istatistik"] = os.path.join(dizin, "istatistik.csv")
     YOLLAR["raporlar"] = os.path.join(dizin, "raporlar")
     YOLLAR["cache"] = os.path.join(dizin, "cache")
+    YOLLAR["kripto_listesi"] = os.path.join(dizin, "kripto_listesi.json")
 
 
 yollari_ayarla(TEMEL_DIZIN)
@@ -306,7 +323,139 @@ def json_yaz(yol, veri):
 
 
 def kripto_mu(sembol):
-    return sembol in KRIPTO
+    """Forex ve metal listesinde olmayan her sembol kripto kabul edilir (7/24 piyasa)."""
+    return sembol not in FOREX and sembol not in METALLER
+
+
+# --- Hacme göre kripto listesi (Twelve Data kredisi harcamaz) -----------------
+
+HACIM_KAYNAKLARI = ["https://data-api.binance.vision/api/v3/ticker/24hr",
+                    "https://api.binance.com/api/v3/ticker/24hr"]
+COINGECKO_URL = "https://api.coingecko.com/api/v3/coins/markets"
+TD_KRIPTO_URL = "https://api.twelvedata.com/cryptocurrencies"
+
+
+def _dis_json(url, params=None):
+    """Harici (Twelve Data sayacına girmeyen) JSON isteği; hata -> None."""
+    if requests is None:
+        return None
+    try:
+        r = requests.get(url, params=params, timeout=ISTEK_ZAMAN_ASIMI_SN)
+        if r.status_code != 200:
+            return None
+        return r.json()
+    except Exception:
+        return None
+
+
+def _haric_mi(baz):
+    b = baz.upper()
+    if b in KRIPTO_HARIC:
+        return True
+    # Kaldıraçlı tokenlar (BTCUP, ETHDOWN, BULL/BEAR)
+    return any(b.endswith(s) and len(b) > len(s) + 1 for s in ("UP", "DOWN", "BULL", "BEAR"))
+
+
+def binance_hacim_sirasi():
+    """Binance USDT spot çiftleri, 24s USD hacmine göre azalan: [(baz, hacim)]."""
+    for url in HACIM_KAYNAKLARI:
+        veri = _dis_json(url)
+        if not isinstance(veri, list):
+            continue
+        sonuc = []
+        for x in veri:
+            try:
+                s = x["symbol"]
+                if not s.endswith("USDT"):
+                    continue
+                baz = s[:-4]
+                fiyat = float(x["lastPrice"])
+                hacim = float(x["quoteVolume"])
+            except (KeyError, ValueError, TypeError):
+                continue
+            if not baz or _haric_mi(baz) or fiyat <= 0:
+                continue
+            # Stablecoin sezgisi: fiyat ~1$ ve gün içi oynaklık çok düşük
+            try:
+                if abs(fiyat - 1) < 0.02 and (float(x["highPrice"]) - float(x["lowPrice"])) / fiyat < 0.01:
+                    continue
+            except (KeyError, ValueError, TypeError):
+                pass
+            sonuc.append((baz, hacim))
+        if sonuc:
+            sonuc.sort(key=lambda t: -t[1])
+            return sonuc, "Binance"
+    return None, None
+
+
+def coingecko_hacim_sirasi():
+    veri = _dis_json(COINGECKO_URL, {"vs_currency": "usd", "order": "volume_desc", "per_page": 150, "page": 1})
+    if not isinstance(veri, list):
+        return None, None
+    sonuc = []
+    for x in veri:
+        try:
+            baz = str(x["symbol"]).upper()
+            hacim = float(x.get("total_volume") or 0)
+            fiyat = float(x.get("current_price") or 0)
+        except (KeyError, ValueError, TypeError):
+            continue
+        if _haric_mi(baz) or abs(fiyat - 1) < 0.02:
+            continue
+        sonuc.append((baz, hacim))
+    return (sonuc, "CoinGecko") if sonuc else (None, None)
+
+
+def twelvedata_kripto_seti():
+    """Twelve Data'da bulunan X/USD kripto sembolleri (referans verisi, kredi harcamaz)."""
+    veri = _dis_json(TD_KRIPTO_URL)
+    if not isinstance(veri, dict) or not isinstance(veri.get("data"), list):
+        return None
+    return set(x.get("symbol") for x in veri["data"] if str(x.get("symbol", "")).endswith("/USD"))
+
+
+def kripto_listesi(simdi, cevrimdisi=False):
+    """Taranacak kripto çiftleri: KRIPTO (zorunlu) + 24s hacme göre en yüksekler,
+    toplam KRIPTO_SAYISI. Liste günde bir kez yenilenir ve kripto_listesi.json'da tutulur."""
+    zorunlu = list(dict.fromkeys(KRIPTO))
+    if not KRIPTO_OTOMATIK or cevrimdisi:
+        return list(dict.fromkeys(zorunlu + KRIPTO_SABIT))[:max(KRIPTO_SAYISI, len(zorunlu))]
+    kayit = json_oku(YOLLAR["kripto_listesi"], {})
+    if isinstance(kayit, dict) and kayit.get("semboller") and kayit.get("sayi") == KRIPTO_SAYISI:
+        try:
+            yas = simdi - datetime.datetime.strptime(kayit["zaman"], "%Y-%m-%d %H:%M")
+            if yas < datetime.timedelta(hours=KRIPTO_LISTE_YENILEME_SAAT):
+                return list(dict.fromkeys(zorunlu + kayit["semboller"]))[:max(KRIPTO_SAYISI, len(zorunlu))]
+        except (KeyError, ValueError):
+            pass
+    sira, kaynak = binance_hacim_sirasi()
+    if not sira:
+        sira, kaynak = coingecko_hacim_sirasi()
+    if not sira:
+        eski = kayit.get("semboller") if isinstance(kayit, dict) else None
+        uyari("Hacim listesi alınamadı; %s kullanıldı." % ("önceki liste" if eski else "KRIPTO_SABIT"))
+        return list(dict.fromkeys(zorunlu + (eski or KRIPTO_SABIT)))[:max(KRIPTO_SAYISI, len(zorunlu))]
+    td = twelvedata_kripto_seti()
+    secilen, hacimler = list(zorunlu), {}
+    for baz, hacim in sira:
+        s = baz + "/USD"
+        if s in secilen:
+            hacimler[s] = hacim
+            continue
+        if td is not None and s not in td:
+            continue  # Twelve Data'da yok -> kredi boşa harcanmasın
+        if len(secilen) >= KRIPTO_SAYISI:
+            break
+        secilen.append(s)
+        hacimler[s] = hacim
+    try:
+        json_yaz(YOLLAR["kripto_listesi"], {"zaman": zaman_yaz(simdi), "kaynak": kaynak, "sayi": KRIPTO_SAYISI,
+                                            "semboller": secilen,
+                                            "hacim_musd": {s: round(h / 1e6, 1) for s, h in hacimler.items()}})
+    except Exception:
+        pass
+    print("Kripto listesi (%s, 24s hacim): %s" % (kaynak, ", ".join(secilen)))
+    return secilen
 
 
 def ortust(a1, a2, b1, b2, tol=0.0):
@@ -2177,9 +2326,11 @@ def stop_ayarla(ctx, stop_ref, giris, notlar):
                     degisti = True
                     notlar.append("stop likidite havuzunun ötesine taşındı")
             for z in an["imbs"]:
-                if z["yon"] == "long" and z["kirilim_i"] is None and z["alt"] - tampon < stop <= z["ust"]:
-                    stop = z["alt"] - tampon
-                    degisti = True
+                # Stop imbalance sınırına konmaz: sınıra çok yakınsa sınırın bir tampon ötesine
+                for sinir in (z["alt"], z["ust"]):
+                    if z["kirilim_i"] is None and sinir - 0.1 * a < stop <= sinir + 0.1 * a:
+                        stop = sinir - tampon
+                        degisti = True
         if not degisti:
             break
     r = aktif_range(ctx["htf"]) or aktif_range(ltf)
@@ -3754,7 +3905,7 @@ def tarama(kaynak=None):
     hafiza = json_oku(YOLLAR["kurulumlar"], {})
     if not isinstance(hafiza, dict):
         hafiza = {}
-    semboller = KRIPTO + FOREX + METALLER
+    semboller = kripto_listesi(simdi, cevrimdisi=kaynak is not None) + FOREX + METALLER
     eslesmeler = eslesmeleri_coz()
     print("=" * 60)
     print("DD Finance PA Tarama | %s UTC" % zaman_yaz(simdi))

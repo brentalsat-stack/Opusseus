@@ -7,3 +7,4 @@ cache/
 demo/
 __pycache__/
 *.tmp
+kripto_listesi.json

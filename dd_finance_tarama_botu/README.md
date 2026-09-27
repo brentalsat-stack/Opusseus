@@ -37,13 +37,30 @@ manuel açıp kapatır. Eğitim amaçlıdır; yatırım tavsiyesi değildir.
 | `istatistik.csv` | Konsept bazında dönüş ve 2R başarı oranları (ek API isteği yapmaz) |
 | `raporlar/rapor_YYYY-MM-DD_HH-MM.txt` | Tarama raporu (eski rapor asla ezilmez) |
 | `cache/` | Kısa süreli mum önbelleği (aynı veriyi tekrar çekmemek için) |
+| `kripto_listesi.json` | Hacme göre seçilen kripto çiftleri ve 24s hacimleri (günlük yenilenir) |
 
-## Varsayılan istek bütçesi
+## Kripto listesi (hacme göre otomatik)
 
-Sembol başına 3 istek (`1day`, `4h`, `1h`) × 14 sembol = 42 istek/tarama. 8 sn aralıkla ≈ 6 dakika sürer,
-800'lük günlük limitle en fazla ≈ 19 tarama yapılabilir. `12h`, `2day` ve `2h` dilimleri çekilen verilerden
-birleştirilir, ek istek yapmaz. `1h→15min` eşleşmesi açılırsa istek/tarama 56'ya çıkar. Bütçe yetmezse
-15min eşleşmesi ikinci turda yalnızca aday çıkan sembollerde çalışır.
+Kripto çiftleri günde bir kez (`KRIPTO_LISTE_YENILEME_SAAT`) **24 saatlik hacme göre** otomatik seçilir:
+
+1. Binance USDT spot çiftleri hacme göre sıralanır (`data-api.binance.vision`, erişilemezse `api.binance.com`,
+   o da olmazsa CoinGecko).
+2. Stablecoin, wrapped/staked, altın tokenları ve kaldıraçlı tokenlar elenir (`KRIPTO_HARIC`).
+3. Twelve Data'da `X/USD` karşılığı olmayanlar elenir, böylece kredi boşa harcanmaz.
+4. `KRIPTO` listesindekiler (BTC, ETH, SOL, BNB, XRP) her zaman dahildir; toplam `KRIPTO_SAYISI` (30) çift.
+
+Bu adımlar Twelve Data kredisi **harcamaz**. Seçilen liste ve hacimler (milyon $) `kripto_listesi.json`'a
+yazılır. Hiçbir kaynağa ulaşılamazsa önceki liste, o da yoksa `KRIPTO_SABIT` kullanılır.
+`KRIPTO_OTOMATIK = False` ile sabit listeye dönülür.
+
+## İstek bütçesi
+
+Sembol başına 3 istek (`1day`, `4h`, `1h`). 30 kripto + 7 forex + 2 metal = 39 sembol → **117 istek/tarama**.
+8 sn aralıkla bir tarama ≈ **16 dakika** sürer; 800'lük günlük limitle günde en fazla **≈ 6 tarama** yapılabilir.
+Limit yaklaşırsa kalan semboller atlanır (sıra: hacme göre kripto, sonra forex, sonra metal).
+Daha sık tarama için `KRIPTO_SAYISI`'nı düşürün (ör. 20 → 87 istek, ≈ 9 tarama/gün).
+`12h`, `2day` ve `2h` dilimleri çekilen verilerden birleştirilir, ek istek yapmaz. `1h→15min` eşleşmesi
+açılırsa sembol başına 4 istek olur; bütçe yetmezse 15min yalnızca aday çıkan sembollerde ikinci turda çalışır.
 
 ## Uygulama notları (şartnamenin yorumlandığı yerler)
 
