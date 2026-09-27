@@ -1656,6 +1656,93 @@ def _range_alt(m):
     return m["dusuk"] if FITIL_DAHIL else govde_alt(m)
 
 
+def range_izle(mumlar, atrs, rh, rl, bas, son_rh, son_rl):
+    """Range'i bas indeksinden itibaren izler: deviasyonlar (kapanışla / fitille),
+    MANIPULASYON_MAX_MUM içinde geri dönmeyen kapanış = kırılım, RH/RL temasları."""
+    N = len(mumlar)
+    rh_temas = rl_temas = 1
+    devs, dis, kirilim = [], None, None
+    for i in range(bas, N):
+        m = mumlar[i]
+        c = m["kapanis"]
+        tol = 0.3 * atrs[i]
+        if dis is not None:
+            if rl <= c <= rh:
+                dis["reentry_i"] = i
+                dis["reentry_istekli"] = govde(m) >= DISPLACEMENT_ATR * atrs[i]
+                devs.append(dis)
+                dis = None
+            elif i - dis["bas_i"] >= MANIPULASYON_MAX_MUM:
+                kirilim = dis
+                break
+            else:
+                if dis["yon"] == "yukari":
+                    dis["uc"] = max(dis["uc"], m["yuksek"])
+                else:
+                    dis["uc"] = min(dis["uc"], m["dusuk"])
+            continue
+        if c > rh:
+            dis = {"yon": "yukari", "bas_i": i, "uc": m["yuksek"], "fitil": False,
+                   "istekli": govde(m) >= DISPLACEMENT_ATR * atrs[i]}
+            continue
+        if c < rl:
+            dis = {"yon": "asagi", "bas_i": i, "uc": m["dusuk"], "fitil": False,
+                   "istekli": govde(m) >= DISPLACEMENT_ATR * atrs[i]}
+            continue
+        if m["yuksek"] > rh + 0.1 * atrs[i]:
+            devs.append({"yon": "yukari", "bas_i": i, "uc": m["yuksek"], "fitil": True,
+                         "reentry_i": i, "reentry_istekli": False, "istekli": False})
+        if m["dusuk"] < rl - 0.1 * atrs[i]:
+            devs.append({"yon": "asagi", "bas_i": i, "uc": m["dusuk"], "fitil": True,
+                         "reentry_i": i, "reentry_istekli": False, "istekli": False})
+        if (_range_ust(m) >= rh - tol or m["yuksek"] > rh) and i - son_rh >= 3:
+            rh_temas += 1
+            son_rh = i
+        if (_range_alt(m) <= rl + tol or m["dusuk"] < rl) and i - son_rl >= 3:
+            rl_temas += 1
+            son_rl = i
+    return devs, dis, kirilim, rh_temas, rl_temas
+
+
+def monday_araligi(mumlar_1d, simdi):
+    """Bu haftanın tamamlanmış Pazartesi mumu: (başlangıç, high, low) veya None."""
+    if not mumlar_1d:
+        return None
+    bugun = mumlar_1d[-1]["dt"].date()
+    hafta_bas = bugun - datetime.timedelta(days=bugun.weekday())
+    pzt = [m for m in mumlar_1d if m["dt"].date() == hafta_bas]
+    bas = datetime.datetime.combine(hafta_bas, datetime.time())
+    if not pzt or simdi < bas + datetime.timedelta(days=1):
+        return None
+    return bas, pzt[0]["yuksek"], pzt[0]["dusuk"]
+
+
+def monday_range(an, pzt, ayna_mi):
+    """Şartname 7.7 / DD not 2: Monday High / Low düşük dilimlerde range görevi görür.
+    RH = Monday High, RL = Monday Low (ayna çerçevede ters), izleme Salı'dan başlar."""
+    bas_dt, yuksek, dusuk = pzt
+    rh, rl = (-dusuk, -yuksek) if ayna_mi else (yuksek, dusuk)
+    if rh <= rl:
+        return None
+    m, atrs = an["m"], an["atrs"]
+    bas_i = indeks_bul(an["dts"], bas_dt)
+    izle = indeks_bul(an["dts"], bas_dt + datetime.timedelta(days=1))
+    if bas_i >= len(m) or izle >= len(m):
+        return None
+    devs, dis, kirilim, rh_t, rl_t = range_izle(m, atrs, rh, rl, izle, izle - 1, izle - 1)
+    durum = "aktif"
+    if kirilim:
+        durum = "kırıldı_yukarı" if kirilim["yon"] == "yukari" else "kırıldı_aşağı"
+    elif dis is not None:
+        durum = "deviasyonda"
+        devs.append(dict(dis, reentry_i=None, reentry_istekli=False))
+    r = {"tur": "MONDAY", "rh": rh, "rl": rl, "eq": (rh + rl) / 2.0, "bas_i": bas_i,
+         "bit_i": kirilim["bas_i"] if kirilim else len(m) - 1, "durum": durum, "kirilim": kirilim,
+         "devs": devs, "rh_temas": rh_t, "rl_temas": rl_t, "h_i": bas_i, "l_i": bas_i}
+    r["devs_detay"] = deviasyon_tespit(r, m, atrs, an["mikro"]["olaylar"])
+    return r
+
+
 def range_tespit(mumlar, atrs, ana_swingler):
     """Ana swing çiftlerinden range (RH/RL/EQ) ve deviasyonları çıkarır.
     En yeni en başta olmak üzere en fazla 3 range döner (kırılmış olanlar dahil)."""
@@ -1675,48 +1762,7 @@ def range_tespit(mumlar, atrs, ana_swingler):
         if rh - rl < a:
             continue
         bas = min(h["i"], l["i"])
-        rh_temas = rl_temas = 1
-        son_rh, son_rl = h["i"], l["i"]
-        devs, dis, kirilim = [], None, None
-        for i in range(max(h["i"], l["i"]) + 1, N):
-            m = mumlar[i]
-            c = m["kapanis"]
-            tol = 0.3 * atrs[i]
-            if dis is not None:
-                if rl <= c <= rh:
-                    dis["reentry_i"] = i
-                    dis["reentry_istekli"] = govde(m) >= DISPLACEMENT_ATR * atrs[i]
-                    devs.append(dis)
-                    dis = None
-                elif i - dis["bas_i"] >= MANIPULASYON_MAX_MUM:
-                    kirilim = dis
-                    break
-                else:
-                    if dis["yon"] == "yukari":
-                        dis["uc"] = max(dis["uc"], m["yuksek"])
-                    else:
-                        dis["uc"] = min(dis["uc"], m["dusuk"])
-                continue
-            if c > rh:
-                dis = {"yon": "yukari", "bas_i": i, "uc": m["yuksek"], "fitil": False,
-                       "istekli": govde(m) >= DISPLACEMENT_ATR * atrs[i]}
-                continue
-            if c < rl:
-                dis = {"yon": "asagi", "bas_i": i, "uc": m["dusuk"], "fitil": False,
-                       "istekli": govde(m) >= DISPLACEMENT_ATR * atrs[i]}
-                continue
-            if m["yuksek"] > rh + 0.1 * atrs[i]:
-                devs.append({"yon": "yukari", "bas_i": i, "uc": m["yuksek"], "fitil": True,
-                             "reentry_i": i, "reentry_istekli": False, "istekli": False})
-            if m["dusuk"] < rl - 0.1 * atrs[i]:
-                devs.append({"yon": "asagi", "bas_i": i, "uc": m["dusuk"], "fitil": True,
-                             "reentry_i": i, "reentry_istekli": False, "istekli": False})
-            if (_range_ust(m) >= rh - tol or m["yuksek"] > rh) and i - son_rh >= 3:
-                rh_temas += 1
-                son_rh = i
-            if (_range_alt(m) <= rl + tol or m["dusuk"] < rl) and i - son_rl >= 3:
-                rl_temas += 1
-                son_rl = i
+        devs, dis, kirilim, rh_temas, rl_temas = range_izle(mumlar, atrs, rh, rl, max(h["i"], l["i"]) + 1, h["i"], l["i"])
         bit = kirilim["bas_i"] if kirilim else N - 1
         if bit - bas < RANGE_MIN_MUM or rh_temas < RANGE_MIN_TEMAS or rl_temas < RANGE_MIN_TEMAS:
             continue
@@ -3767,7 +3813,7 @@ def yapi_ozeti(sembol, analizler, anahtar):
         satirlar.append(s)
         r = aktif_range(an)
         if r:
-            satirlar.append("      range RL %s / EQ %s / RH %s, konum %.2f (%s)" % (
+            satirlar.append("      %s RL %s / EQ %s / RH %s, konum %.2f (%s)" % ("Monday range" if r.get("tur") == "MONDAY" else "range",
                 yuvarla(r["rl"], fiyat), yuvarla(r["eq"], fiyat), yuvarla(r["rh"], fiyat),
                 range_konum(r, fiyat) or 0, r["durum"]))
         son = len(an["m"]) - 1
@@ -3950,6 +3996,15 @@ def sembol_tara(sembol, eslesmeler, kaynak, simdi, top, oto_notlar, ham):
                     oto_notlar.append("%s %s: başarı < %%%d olan konsept puanı 0: %s" % (
                         sembol, d, OTOMATIK_MIN_BASARI * 100, ", ".join(sorted(zayif))))
     anahtar = anahtar_seviyeler(ham["1day"], simdi)
+    # Monday High/Low düşük dilimlerde (<= 2h) range görevi görür (şartname 7.7)
+    pzt = monday_araligi(ham["1day"], simdi)
+    for ay in (False, True):
+        for d, an_d in an[ay].items():
+            an_d["rangeler"] = [r for r in an_d["rangeler"] if r.get("tur") != "MONDAY"]
+            if pzt and DILIM_DAKIKA.get(d, 0) <= 120:
+                r = monday_range(an_d, pzt, ay)
+                if r:
+                    an_d["rangeler"].insert(0, r)
     kurulumlar = []
     for poi_d, onay_d in eslesmeler:
         for ay in (False, True):
@@ -4509,6 +4564,25 @@ def testleri_calistir():
     kontrol("Giriş kontrolü: stop referansı ötesinde kapanış (stop değmeden) -> İPTAL",
             gdurum([_h(0, 101, 101.5, 99.8, 100.2), _h(1, 100.2, 100.3, 98.2, 98.4)], ltf_boz) == "yapi_bozuldu")
     kontrol("Giriş kontrolü: doldu sonra stop -> eski", gdurum([_h(0, 101, 101.5, 99.8, 100.2), _h(1, 100.2, 100.3, 97.5, 98)]) == "stop")
+
+    # --- Monday range (şartname 7.7) ---
+    pzt_bas = datetime.datetime(2026, 9, 21)
+    mm = []
+    for i in range(72):
+        dt = pzt_bas + datetime.timedelta(hours=i)
+        c = 105 + (4.5 if i % 6 == 0 else -4.5 if i % 6 == 3 else 0)
+        if i == 40:
+            c, lo = 100.5, 98.0          # Salı-Çarşamba: RL altına fitil (deviasyon)
+        mm.append({"zaman": zaman_yaz(dt), "dt": dt, "acilis": 105.0, "yuksek": max(105.0, c) + 0.2,
+                   "dusuk": (lo if i == 40 else min(105.0, c) - 0.2), "kapanis": c})
+    an_t = {"m": mm, "atrs": atr_listesi(mm), "dts": [x["dt"] for x in mm], "mikro": {"olaylar": []}}
+    mr = monday_range(an_t, (pzt_bas, 110.0, 100.0), False)
+    kontrol("Monday range: RH/RL = Monday High/Low, EQ ve fitil deviasyonu",
+            mr and mr["rh"] == 110.0 and mr["rl"] == 100.0 and mr["eq"] == 105.0
+            and any(d["yon"] == "asagi" and d["uc"] == 98.0 for d in mr["devs"]),
+            str(mr and (mr["rh"], mr["rl"], [(d["yon"], d["uc"]) for d in mr["devs"]])))
+    kontrol("Monday range: Pazartesi bitmeden kullanılmaz",
+            monday_araligi([{"dt": pzt_bas, "yuksek": 110, "dusuk": 100}], pzt_bas + datetime.timedelta(hours=10)) is None)
 
     # --- Forex hafta sonu ---
     cmt = datetime.datetime(2026, 9, 26, 5, 0)
