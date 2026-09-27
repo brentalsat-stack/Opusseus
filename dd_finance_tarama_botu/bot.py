@@ -4665,6 +4665,9 @@ BACKTEST_ADIM_SAAT = 1           # Botun kaç saatte bir tarama yaptığı varsa
 BACKTEST_LIMIT_MAX_SAAT = 24     # Dolmayan limit/agresif emir bu süre sonra iptal
 BACKTEST_MAX_ISLEM_SAAT = 168    # Açık işlem bu süre sonra piyasadan kapatılır (7 gün)
 BACKTEST_TP1_SONRA_GIRISE = True # TP1'de kâr alındıktan sonra stop girişe çekilir (DD PO3 notu)
+BACKTEST_ESLESME_HARIC = []      # örn. ["1day→4h"] -- bu eşlemeden gelen kurulumlar emir açmaz (--no-1d4h)
+BACKTEST_GIRIS_TURU_HARIC = []   # örn. ["PİYASA"] -- bu giriş türleri emir açmaz (--no-piyasa)
+BACKTEST_MIN_SKOR = None         # örn. 4 -- bu skorun altındaki kurulumlar emir açmaz (--min-skor=4)
 BACKTEST_KLINE_URL = ["https://data-api.binance.vision/api/v3/klines",
                       "https://api.binance.com/api/v3/klines"]
 BT_ARALIK = {"1day": ("1d", 1440), "4h": ("4h", 240), "1h": ("1h", 60), "15min": ("15m", 15)}
@@ -4837,6 +4840,9 @@ def backtest_calistir(gun=None, sembol_sayisi=None):
     print("GERİYE DÖNÜK TEST | %s -> %s UTC | %d gün | %d sembol | adım %d saat" % (
         zaman_yaz(bas), zaman_yaz(bit), gun, len(semboller), BACKTEST_ADIM_SAAT))
     print("Semboller: " + ", ".join(semboller))
+    if BACKTEST_ESLESME_HARIC or BACKTEST_GIRIS_TURU_HARIC or BACKTEST_MIN_SKOR is not None:
+        print("Filtre: eşleme_haric=%s giris_haric=%s min_skor=%s" %
+              (BACKTEST_ESLESME_HARIC or "-", BACKTEST_GIRIS_TURU_HARIC or "-", BACKTEST_MIN_SKOR))
     print("Uyarı: bugünkü hacim listesi geçmişe uygulanır (hayatta kalma yanlılığı olabilir).")
     orijinal_analiz = dilim_analiz
     tum_islemler, kacan = [], []
@@ -4891,6 +4897,9 @@ def backtest_calistir(gun=None, sembol_sayisi=None):
                     tur, giris = "PİYASA", gd["fiyat"]
                 else:
                     tur, giris = ("AGRESİF" if agresif else "LİMİT"), k["giris"]
+                if k["eslesme"] in BACKTEST_ESLESME_HARIC or tur in BACKTEST_GIRIS_TURU_HARIC or \
+                        (BACKTEST_MIN_SKOR is not None and k["skor"] < BACKTEST_MIN_SKOR):
+                    continue
                 islem = {"sembol": sembol, "eslesme": k["eslesme"], "tip": k["tip"], "yon": k["yon"],
                          "giris_turu": tur, "sinyal_zamani": zaman_yaz(t), "tetik": k.get("zaman", ""),
                          "giris": giris, "oneri_giris": k["giris"], "giris_alt": k["giris_alt"], "giris_ust": k["giris_ust"],
@@ -4942,7 +4951,11 @@ def bt_rapor_yaz(dizin, islemler, kacan, bas, bit, semboller):
          "Tarama sıklığı: %d saat | Limit emir ömrü: %d saat | Çıkış: TP1 %%50 + TP2 %%50, TP1 sonrası stop %s" % (
              BACKTEST_ADIM_SAAT, BACKTEST_LIMIT_MAX_SAAT, "girişe" if BACKTEST_TP1_SONRA_GIRISE else "sabit"),
          "Giriş türleri: AGRESİF = SFP_AGRESIF limit | LİMİT = dolmamış girişe limit | PİYASA = dolmuş ama geçerli, güncel fiyattan",
-         "Not: geçmiş sonuç geleceği garanti etmez; komisyon/kayma dahil değildir.", ""]
+         "Not: geçmiş sonuç geleceği garanti etmez; komisyon/kayma dahil değildir."]
+    if BACKTEST_ESLESME_HARIC or BACKTEST_GIRIS_TURU_HARIC or BACKTEST_MIN_SKOR is not None:
+        s.append("Filtre: eşleme_haric=%s giris_haric=%s min_skor=%s" %
+                 (BACKTEST_ESLESME_HARIC or "-", BACKTEST_GIRIS_TURU_HARIC or "-", BACKTEST_MIN_SKOR))
+    s.append("")
 
     def satir(ad, o):
         return "  %-26s emir %4d | dolan %4d | isabet %5.1f%% | toplam %+7.2fR | ort %+5.2fR/işlem | (hepsi TP1: %+7.2fR)" % (
@@ -4991,6 +5004,13 @@ if __name__ == "__main__":
         sys.exit(0 if testleri_calistir() else 1)
     elif "--backtest" in argumanlar:
         sayilar = [int(x) for x in argumanlar if x.isdigit()]
+        if "--no-1d4h" in argumanlar:
+            BACKTEST_ESLESME_HARIC.append("1day→4h")
+        if "--no-piyasa" in argumanlar:
+            BACKTEST_GIRIS_TURU_HARIC.append("PİYASA")
+        for a in argumanlar:
+            if a.startswith("--min-skor="):
+                BACKTEST_MIN_SKOR = int(a.split("=")[1])
         backtest_calistir(sayilar[0] if sayilar else None, sayilar[1] if len(sayilar) > 1 else None)
     elif "--demo" in argumanlar:
         yollari_ayarla(os.path.join(TEMEL_DIZIN, "demo"))
