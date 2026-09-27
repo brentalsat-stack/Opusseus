@@ -4696,8 +4696,11 @@ def backtest_calistir(gun=None, sembol_sayisi=None):
     if BACKTEST_SEMBOLLER:
         semboller = list(BACKTEST_SEMBOLLER)
     else:
+        # Canlı taramayla aynı evren: Twelve Data'da X/USD karşılığı olan hacimli çiftler
         sira, _ = binance_hacim_sirasi()
-        semboller = [b + "/USD" for b, _ in (sira or [])][:sembol_sayisi] or KRIPTO_SABIT[:sembol_sayisi]
+        td = twelvedata_kripto_seti()
+        semboller = [b + "/USD" for b, _ in (sira or []) if td is None or (b + "/USD") in td][:sembol_sayisi]
+        semboller = semboller or KRIPTO_SABIT[:sembol_sayisi]
     eslesmeler = [e for e in eslesmeleri_coz() if "15min" not in e]
     print("=" * 60)
     print("GERİYE DÖNÜK TEST | %s -> %s UTC | %d gün | %d sembol | adım %d saat" % (
