@@ -82,6 +82,9 @@ açılırsa sembol başına 4 istek olur; bütçe yetmezse 15min yalnızca aday 
   - `[AKTİF]`: giriş doldu ve güncel fiyattan R/R hâlâ `MIN_RR` üstünde.
   - **Giriş kaçtı**: giriş doldu ama fiyat uzaklaştı (güncel R/R < `MIN_RR`) → yeni sinyal yazılmaz, rapordaki
     "İptal / kaçan" bölümünde gösterilir. Stop veya TP1 görüldüyse yalnızca istatistiğe girer.
+  - **İptal (yapı)**: tetikten sonra onay diliminde stop referansının (yapı seviyesi) ötesinde kapanış olduysa
+    veya ters yönde CHoCH/MSB geldiyse, fiyat girişe yakın olsa bile kurulum geçersizdir (şartname 6.5 hedef
+    iptali, 8.1 SFP seviyesi ötesinde kapanış).
   - Geç kalmış ama girişi hâlâ geçerli kurulumlar "GEÇ SİNYAL" notuyla izleme listesinde gösterilir.
   Her sinyal satırında tetik mumunun saati (UTC), notlarda güncel fiyat ve dolum saati yazar.
 - **POI tabanı:** S&D temeldir. DD'ye göre her konsept kendi içinde bir S&D olduğundan geçerli HTF

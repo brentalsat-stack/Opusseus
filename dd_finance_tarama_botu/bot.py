@@ -2448,7 +2448,7 @@ def hedef_sec(ctx, k):
             if all(abs(p - q) > 0.2 * a for q, _ in tps):
                 tps.append((p, "yapısal:" + e))
         tps.sort(key=lambda x: x[0])
-        if len(tps) < 3 and fib16 and fib16 > giris and all(abs(fib16 - q) > 0.2 * a for q, _ in tps):
+        if len(tps) < 3 and fib16 and fib16 > max([giris] + [q for q, _ in tps]) + 0.2 * a:
             tps.append((fib16, "FIB1.618(bilgi)"))
         if any(e.startswith("yapısal") for _, e in tps):
             k["notlar"].append("yapısal hedef")
@@ -3229,6 +3229,16 @@ def giris_durumu(ctx, k):
             return {"durum": "stop", "zaman": zaman_yaz(x["dt"])}
         if j > dolum and x["yuksek"] >= tp1:
             return {"durum": "tp1", "zaman": zaman_yaz(x["dt"])}
+    # Yapı kontrolü (onay dilimi, kapanmış mumlar): stop referansının ötesinde kapanış veya
+    # tetikten sonra ters yönde CHoCH/MSB -> fikir geçersiz, hedefler iptal edilmiş hedef
+    ltf = ctx["ltf"]
+    for j in range(k["tetik_i"] + 1, len(ltf["m"])):
+        if ltf["m"][j]["kapanis"] < k["stop_ref"]:
+            return {"durum": "yapi_bozuldu", "zaman": zaman_yaz(ltf["dts"][j])}
+    ters = next((o for o in ltf["olaylar"] if o["yon"] == "bear" and o["tip"] in ("CHOCH", "MSB")
+                 and o["i"] > k["tetik_i"]), None)
+    if ters is not None:
+        return {"durum": "ters_yapi", "zaman": zaman_yaz(ltf["dts"][ters["i"]]), "olay": ters["tip"]}
     p = m[-1]["kapanis"]
     sonuc = {"fiyat": p, "fiyat_zaman": zaman_yaz(m[-1]["dt"]),
              "dolum": zaman_yaz(m[dolum]["dt"]) if dolum is not None else None}
@@ -3277,6 +3287,8 @@ def cerceve_tara(ctx):
                 continue
             if gd["durum"] in ("stop", "tp1"):
                 k["asama"] = "eski"
+            elif gd["durum"] in ("yapi_bozuldu", "ters_yapi"):
+                k["asama"] = "iptal"
             elif gd["durum"] in ("hedef_girissiz", "kacti", "limit_uzak"):
                 k["asama"] = "kacti"
             elif gec:
@@ -3342,6 +3354,10 @@ def giris_notu_ekle(k):
     elif d == "kacti":
         k["notlar"].insert(0, "GİRİŞ KAÇTI: doldu (%s UTC) ama güncel fiyat %s, güncel R/R %s < %s; fiyat girişe dönerse geçerli" % (
             gd["dolum"], yuvarla(gd["fiyat"], ref), gd["guncel_rr"], MIN_RR))
+    elif d == "yapi_bozuldu":
+        k["notlar"].insert(0, "İPTAL: %s UTC mumu stop referansının (yapı seviyesi) ötesinde kapandı; fiyat girişe yakın olsa da fikir geçersiz" % gd["zaman"])
+    elif d == "ters_yapi":
+        k["notlar"].insert(0, "İPTAL: tetikten sonra ters yönde %s (%s UTC); hedefler 'iptal edilmiş hedef', yeni giriş yok" % (gd["olay"], gd["zaman"]))
     elif d == "limit_uzak":
         k["notlar"].insert(0, "KAÇTI: giriş dolmadı, fiyat girişten %+.2fR uzaklaştı (> LIMIT_MAX_UZAKLIK_R=%s); güncel fiyat %s" % (
             gd["uzaklik_r"], LIMIT_MAX_UZAKLIK_R, yuvarla(gd["fiyat"], ref)))
@@ -4473,13 +4489,25 @@ def testleri_calistir():
         return {"dt": base + datetime.timedelta(hours=i), "acilis": o, "yuksek": h, "dusuk": l, "kapanis": c}
     ltf_s = {"dts": [base], "dilim": "1h"}
     kk = {"giris": 100.0, "stop": 98.0, "tps": [(106.0, "x")], "tetik_i": 0}
-    def gdurum(seri):
-        return giris_durumu({"m1h_ham": seri, "ltf": ltf_s}, dict(kk))["durum"]
+    ltf_s.update({"m": [_h(0, 101, 101.5, 100.5, 101)], "olaylar": []})
+    kk["stop_ref"] = 98.5
+
+    def gdurum(seri, ltf=None):
+        return giris_durumu({"m1h_ham": seri, "ltf": ltf or ltf_s}, dict(kk))["durum"]
     kontrol("Giriş kontrolü: dolmadı -> LİMİT", gdurum([_h(0, 101, 101.5, 100.5, 101), _h(1, 101, 101.2, 100.6, 101)]) == "limit")
     kontrol("Giriş kontrolü: doldu, fiyat girişe yakın -> AKTİF", gdurum([_h(0, 101, 101.5, 99.8, 100.2), _h(1, 100.2, 100.6, 100, 100.4)]) == "aktif")
     kontrol("Giriş kontrolü: doldu, fiyat uzaklaştı (güncel R/R < MIN_RR) -> KAÇTI",
             gdurum([_h(0, 101, 101.5, 99.8, 100.2), _h(1, 100.2, 103.6, 100.1, 103.5)]) == "kacti")
     kontrol("Giriş kontrolü: giriş gelmeden TP1 -> KAÇTI", gdurum([_h(0, 101, 106.5, 100.5, 106)]) == "hedef_girissiz")
+    ltf_ters = {"dts": [base, base + datetime.timedelta(hours=1)], "dilim": "1h",
+                "m": [_h(0, 101, 101.5, 99.8, 100.2), _h(1, 100.2, 100.6, 99.9, 100.1)],
+                "olaylar": [{"tip": "CHOCH", "yon": "bear", "i": 1}]}
+    kontrol("Giriş kontrolü: tetikten sonra ters CHoCH -> İPTAL (hedef iptali, fiyat girişe yakın olsa da)",
+            gdurum([_h(0, 101, 101.5, 99.8, 100.2), _h(1, 100.2, 100.6, 99.9, 100.1)], ltf_ters) == "ters_yapi")
+    ltf_boz = {"dts": ltf_ters["dts"], "dilim": "1h", "olaylar": [],
+               "m": [_h(0, 101, 101.5, 99.8, 100.2), _h(1, 100.2, 100.3, 98.2, 98.4)]}
+    kontrol("Giriş kontrolü: stop referansı ötesinde kapanış (stop değmeden) -> İPTAL",
+            gdurum([_h(0, 101, 101.5, 99.8, 100.2), _h(1, 100.2, 100.3, 98.2, 98.4)], ltf_boz) == "yapi_bozuldu")
     kontrol("Giriş kontrolü: doldu sonra stop -> eski", gdurum([_h(0, 101, 101.5, 99.8, 100.2), _h(1, 100.2, 100.3, 97.5, 98)]) == "stop")
 
     # --- Forex hafta sonu ---
