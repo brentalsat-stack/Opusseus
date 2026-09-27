@@ -53,6 +53,21 @@ python3 bot.py --backtest 14 10      # son 14 gün, 10 çift
   (hayatta kalma yanlılığı). Veri **spot** piyasadır; perpetual (ör. SOLUSDT.P) fiyatları birkaç tik
   farklı olabilir ve limitler farklı dolabilir.
 
+## DD notlarıyla satır satır kontrol (düzeltilenler)
+
+DD Finance Public Video Notları (49 sayfa) şartname ve kodla tek tek karşılaştırıldı. Uyumsuz bulunan yerler:
+
+| Not | Bulgu | Düzeltme |
+|---|---|---|
+| 2 – Anahtar seviyeler | Monday High/Low düşük dilimlerde range görevi görür (şartname 7.7) | ≤ 2h dilimlerde Monday range (RH/RL/EQ, deviasyon) |
+| 3 – Range | Range büyük göreceli hareketten sonra oluşur; POI'de range ucu puanlanır | `RANGE_ONCEKI_HAREKET_KAT`, POI'de `RANGE_UCU` +0.5 |
+| 4 – Power of 3 | Hedefe yaklaşınca kâr al, sonra stop girişe | Yönetim notu + backtest `BACKTEST_TP1_SONRA_GIRISE` |
+| 5 – Imbalance | Trendde fiyat imbalance'ın bir tık önünden tepki alabilir | Re-test tetiği `IMB_ON_TEPKI_ATR` (ön tepki) |
+| 13 – Fibonacci | Uzatmada 3. nokta 0.705; Fib 1.0'da OB ekstra onay | P3 = 0.705 noktası, `FIB1+OB` +0.5 |
+
+Diğer notlar (OB, S&D, RBR/DBD, S/R flip, breaker, mitigation, likidite, QM, SFP, inducement,
+reversal fractal, market yapısı) mevcut kodla uyumlu bulundu.
+
 ## Dosyalar
 
 | Dosya | İçerik |
