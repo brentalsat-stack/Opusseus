@@ -3773,7 +3773,8 @@ def istatistik_yaz(satirlar):
 
 
 YONETIM_NOTU = ("Yönetim: Stop'u erken girişe çekme. Stop, yapıyı bozacak seviyededir; oraya kadar "
-                "yapı geçerlidir. TP1'de kısmi kâr alınabilir; karşı OB/POI'ye yaklaşıldığında kâr almayı değerlendir.")
+                "yapı geçerlidir. TP1'de (hedef/karşı OB/POI'ye yaklaşıldığında) kısmi kâr al; kâr alındıktan "
+                "sonra stop giriş seviyesine çekilebilir (DD PO3 notu).")
 
 
 def kurulum_detay(k):
@@ -4579,6 +4580,13 @@ def testleri_calistir():
             gdurum([_h(0, 101, 101.5, 99.8, 100.2), _h(1, 100.2, 100.3, 98.2, 98.4)], ltf_boz) == "yapi_bozuldu")
     kontrol("Giriş kontrolü: doldu sonra stop -> eski", gdurum([_h(0, 101, 101.5, 99.8, 100.2), _h(1, 100.2, 100.3, 97.5, 98)]) == "stop")
 
+    # --- Backtest: TP1 sonrası stop girişe (DD PO3 notu) ---
+    bm = [_h(0, 100, 100.2, 99.9, 100), _h(1, 100, 104.2, 99.9, 104), _h(2, 104, 104.1, 99.5, 99.6)]
+    isl = bt_islem_simule({"yon": "LONG", "giris": 100.0, "stop": 98.0, "tps": [104.0, 110.0], "giris_turu": "PİYASA",
+                           "dolum_zamani": "", "cikis_zamani": "", "sonuc": "", "R_tp1": 0.0, "R_kademeli": 0.0}, bm, 0)
+    kontrol("Backtest: TP1'de %50 kâr, sonra girişte stop -> +1R (2R x %50)",
+            isl["sonuc"] == "TP1 + girişte stop" and abs(isl["R_kademeli"] - 1.0) < 1e-9, str((isl["sonuc"], isl["R_kademeli"])))
+
     # --- Range: büyük göreceli hareketten sonra (DD not 3) ---
     ry = _yol([(0, 130), (10, 108), (15, 100.5), (20, 109.5), (25, 100.5), (30, 109.5), (35, 100.5), (40, 109.5), (45, 104)])
     ry_sw = swing_noktalari(ry, 2)
@@ -4639,6 +4647,7 @@ BACKTEST_SEMBOLLER = []          # Boş değilse bu liste kullanılır (ör. ["B
 BACKTEST_ADIM_SAAT = 1           # Botun kaç saatte bir tarama yaptığı varsayılır
 BACKTEST_LIMIT_MAX_SAAT = 24     # Dolmayan limit/agresif emir bu süre sonra iptal
 BACKTEST_MAX_ISLEM_SAAT = 168    # Açık işlem bu süre sonra piyasadan kapatılır (7 gün)
+BACKTEST_TP1_SONRA_GIRISE = True # TP1'de kâr alındıktan sonra stop girişe çekilir (DD PO3 notu)
 BACKTEST_KLINE_URL = ["https://data-api.binance.vision/api/v3/klines",
                       "https://api.binance.com/api/v3/klines"]
 BT_ARALIK = {"1day": ("1d", 1440), "4h": ("4h", 240), "1h": ("1h", 60), "15min": ("15m", 15)}
@@ -4746,12 +4755,15 @@ def bt_islem_simule(islem, m1h, bas_i):
     r_tp1 = abs(tp1 - g) / risk
     r_tp2 = abs(tp2 - g) / risk
     tp1_alindi = False
+    aktif_sl = sl
     for j in range(dolum_i, len(m1h)):
         m = m1h[j]
-        if ters(dus(m), sl):
+        if ters(dus(m), aktif_sl):
             islem["cikis_zamani"] = zaman_yaz(m["dt"])
             if tp1_alindi:
-                islem["sonuc"], islem["R_tp1"], islem["R_kademeli"] = "TP1 + stop", r_tp1, 0.5 * r_tp1 - 0.5
+                kalan = 0.0 if aktif_sl == g else -0.5
+                islem["sonuc"] = "TP1 + girişte stop" if aktif_sl == g else "TP1 + stop"
+                islem["R_tp1"], islem["R_kademeli"] = r_tp1, 0.5 * r_tp1 + kalan
             else:
                 islem["sonuc"], islem["R_tp1"], islem["R_kademeli"] = "stop", -1.0, -1.0
             return islem
@@ -4759,6 +4771,8 @@ def bt_islem_simule(islem, m1h, bas_i):
             if not tp1_alindi and ileri(yuk(m), tp1):
                 tp1_alindi = True
                 islem["R_tp1"] = r_tp1
+                if BACKTEST_TP1_SONRA_GIRISE:
+                    aktif_sl = g
             if tp1_alindi and ileri(yuk(m), tp2):
                 islem["cikis_zamani"] = zaman_yaz(m["dt"])
                 islem["sonuc"], islem["R_kademeli"] = "TP1 + TP2", 0.5 * r_tp1 + 0.5 * r_tp2
@@ -4900,8 +4914,8 @@ def bt_rapor_yaz(dizin, islemler, kacan, bas, bit, semboller):
                         round(x["R_kademeli"], 2), x["konseptler"]])
     s = ["DD FINANCE PA BOTU – GERİYE DÖNÜK TEST (Binance gerçek verisi)", "=" * 60,
          "Dönem: %s -> %s UTC | Semboller (%d): %s" % (zaman_yaz(bas), zaman_yaz(bit), len(semboller), ", ".join(semboller)),
-         "Tarama sıklığı: %d saat | Limit emir ömrü: %d saat | Çıkış: TP1 %%50 + TP2 %%50, stop sabit" % (
-             BACKTEST_ADIM_SAAT, BACKTEST_LIMIT_MAX_SAAT),
+         "Tarama sıklığı: %d saat | Limit emir ömrü: %d saat | Çıkış: TP1 %%50 + TP2 %%50, TP1 sonrası stop %s" % (
+             BACKTEST_ADIM_SAAT, BACKTEST_LIMIT_MAX_SAAT, "girişe" if BACKTEST_TP1_SONRA_GIRISE else "sabit"),
          "Giriş türleri: AGRESİF = SFP_AGRESIF limit | LİMİT = dolmamış girişe limit | PİYASA = dolmuş ama geçerli, güncel fiyattan",
          "Not: geçmiş sonuç geleceği garanti etmez; komisyon/kayma dahil değildir.", ""]
 
