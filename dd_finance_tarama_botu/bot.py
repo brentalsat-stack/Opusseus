@@ -2480,18 +2480,29 @@ def hedef_sec(ctx, k):
     if k.get("bacak"):
         lo, hi = k["bacak"]
         if hi - lo >= FIB_BACAK_MIN_ATR * a * 0.5:
-            u = fib_uzatma(lo, hi, giris, "long")
+            # DD fib notu / şartname 9.2: P1 = dip, P2 = tepe, P3 = 0.705 noktası
+            # (geri çekilme bu noktadan daha derin döndüyse gerçekleşen dönüş = giriş)
+            p3 = min(fib_retracement(lo, hi, "long")[0.705], max(giris, lo))
+            u = fib_uzatma(lo, hi, p3, "long")
             fib1, fib16 = u.get(1.0), u.get(1.618)
             if fib1 and fib1 > giris:
                 yapisal.append((fib1, "FIB1"))
     yapisal = sorted(set((p, e) for p, e in yapisal if p > giris + 0.1 * a))
     # Fib 1.0 bir havuz/OB ile çakışıyor mu?
     if fib1:
+        tol_f = FIB_CAKISMA_TOLERANS_ATR * a
         for x in temiz:
-            if abs(x["fiyat"] - fib1) <= FIB_CAKISMA_TOLERANS_ATR * a:
+            if abs(x["fiyat"] - fib1) <= tol_f:
                 x["etiket"] = "FIB1+LIK"
                 k["maddeler"].append(madde("FIB1+LIK", 0.5, "diger", grup="FIB_UZATMA"))
                 break
+        else:
+            # DD: 1.0 noktasındaki direnç bölgesinde OB vb. varsa ekstra onay (şartname 12.1)
+            for an in (ltf, htf):
+                if any(z["yon"] == "short" and z["kirilim_i"] is None and z["alt"] - tol_f <= fib1 <= z["ust"] + tol_f
+                       for z in an["obs"]):
+                    k["maddeler"].append(madde("FIB1+OB", 0.5, "diger", grup="FIB_UZATMA"))
+                    break
     tps = [(x["fiyat"], x["etiket"]) for x in temiz[:3]]
     if any(x["htf"] for x in temiz[:3]):
         k["maddeler"].append(madde("LIK:HTF_hedef", 0.5, grup="LIK_HEDEF"))
