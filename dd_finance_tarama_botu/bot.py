@@ -2804,7 +2804,10 @@ def poi_motoru(ctx, poi):
             if m[j]["kapanis"] < lo or (yapi_ad == "IMB" and m[j]["kapanis"] < imb["alt"]):
                 iptal = j
                 break
-            if m[j]["dusuk"] <= giris:
+            # DD imbalance notu: trend yönünde fiyat imbalance'ın tam içine gelmeden bir tık
+            # yukarısından tepki alabilir -> IMB_ON_TEPKI_ATR içinde gelmek re-test sayılır
+            tetik_seviye = giris + (IMB_ON_TEPKI_ATR * atrs[j] if yapi_ad == "IMB" else 0.0)
+            if m[j]["dusuk"] <= tetik_seviye:
                 r = j
                 break
             tepe = max(tepe, m[j]["yuksek"])
