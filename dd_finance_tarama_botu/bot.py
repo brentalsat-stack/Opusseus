@@ -4598,6 +4598,9 @@ def testleri_calistir():
     bm = [_h(0, 100, 100.2, 99.9, 100), _h(1, 100, 104.2, 99.9, 104), _h(2, 104, 104.1, 99.5, 99.6)]
     isl = bt_islem_simule({"yon": "LONG", "giris": 100.0, "stop": 98.0, "tps": [104.0, 110.0], "giris_turu": "PİYASA",
                            "dolum_zamani": "", "cikis_zamani": "", "sonuc": "", "R_tp1": 0.0, "R_kademeli": 0.0}, bm, 0)
+    isl2 = bt_islem_simule({"yon": "LONG", "giris": 100.0, "stop": 98.0, "tps": [104.0], "giris_turu": "PİYASA",
+                            "dolum_zamani": "", "cikis_zamani": "", "sonuc": "", "R_tp1": 0.0, "R_kademeli": 0.0}, bm, len(bm))
+    kontrol("Backtest: dönemin son saatindeki sinyal çökmüyor (veri bitti)", isl2["sonuc"] == "bekliyor (veri bitti)")
     kontrol("Backtest: TP1'de %50 kâr, sonra girişte stop -> +1R (2R x %50)",
             isl["sonuc"] == "TP1 + girişte stop" and abs(isl["R_kademeli"] - 1.0) < 1e-9, str((isl["sonuc"], isl["R_kademeli"])))
 
@@ -4749,6 +4752,10 @@ def bt_islem_simule(islem, m1h, bas_i):
     ileri = (lambda a, b: a >= b) if long_mu else (lambda a, b: a <= b)
     dus = (lambda m: m["dusuk"]) if long_mu else (lambda m: m["yuksek"])
     yuk = (lambda m: m["yuksek"]) if long_mu else (lambda m: m["dusuk"])
+    if bas_i >= len(m1h):
+        # Sinyal test döneminin son saatinde: sonrası için mum yok
+        islem["sonuc"] = "bekliyor (veri bitti)"
+        return islem
     dolum_i = bas_i if islem["giris_turu"] == "PİYASA" else None
     if dolum_i is None:
         for j in range(bas_i, len(m1h)):
@@ -4891,7 +4898,11 @@ def backtest_calistir(gun=None, sembol_sayisi=None):
                          "ham_puan": k["ham_puan"], "konseptler": konsept_etiketi(k), "sonuc": "", "dolum_zamani": "",
                          "cikis_zamani": "", "R_tp1": 0.0, "R_kademeli": 0.0}
                 bas_i = indeks_bul(dts1h, t)
-                bt_islem_simule(islem, m1h, bas_i)
+                try:
+                    bt_islem_simule(islem, m1h, bas_i)
+                except Exception as e:  # tek bir emirdeki hata tüm testi durdurmasın
+                    print("  %s simülasyon hatası: %s" % (zaman_yaz(t), e))
+                    continue
                 tum_islemler.append(islem)
             t += datetime.timedelta(hours=BACKTEST_ADIM_SAAT)
         n = sum(1 for x in tum_islemler if x["sembol"] == sembol)
