@@ -4525,6 +4525,325 @@ def testleri_calistir():
 
 
 # =============================================================================
+#                 GERİYE DÖNÜK TEST (--backtest) – Binance gerçek verisi
+# =============================================================================
+# Bot, geçmişte her BACKTEST_ADIM_SAAT saatte bir tarama yapıyormuş gibi adım adım
+# ilerletilir (yalnızca o ana kadar KAPANMIŞ mumları görür; geleceğe bakmaz).
+# Bir kurulum ilk kez "sinyal" olduğunda otomatik bir bot gibi emir açılır:
+#   AGRESİF : SFP_AGRESIF girişi (seviyenin hemen berisine limit emir)
+#   LİMİT   : giriş henüz dolmamış -> giriş fiyatına limit emir
+#   PİYASA  : giriş zaten dolmuş ve güncel fiyattan R/R hâlâ MIN_RR üstünde -> güncel fiyattan
+# Çıkış: stop -> -1R; TP1'de %50, TP2'de %50 (stop girişe çekilmez; şartname 11.5).
+# Aynı mumda hem stop hem hedef görülürse muhafazakâr varsayım: önce stop.
+# Binance herkese açık verisi kullanılır; Twelve Data kredisi HARCANMAZ.
+
+BACKTEST_GUN = 30                # Test edilecek geçmiş gün sayısı
+BACKTEST_SEMBOL_SAYISI = 20      # 24s hacme göre ilk N kripto çifti
+BACKTEST_SEMBOLLER = []          # Boş değilse bu liste kullanılır (ör. ["BTC/USD", "SOL/USD"])
+BACKTEST_ADIM_SAAT = 1           # Botun kaç saatte bir tarama yaptığı varsayılır
+BACKTEST_LIMIT_MAX_SAAT = 24     # Dolmayan limit/agresif emir bu süre sonra iptal
+BACKTEST_MAX_ISLEM_SAAT = 168    # Açık işlem bu süre sonra piyasadan kapatılır (7 gün)
+BACKTEST_KLINE_URL = ["https://data-api.binance.vision/api/v3/klines",
+                      "https://api.binance.com/api/v3/klines"]
+BT_ARALIK = {"1day": ("1d", 1440), "4h": ("4h", 240), "1h": ("1h", 60), "15min": ("15m", 15)}
+
+
+def bt_kline_cek(sembol, aralik, bas, bit):
+    """Binance kline'ları [bas, bit) aralığında sayfalı çeker (1000'er)."""
+    kod, dk = BT_ARALIK[aralik]
+    simge = sembol.replace("/USD", "USDT")
+    sonuc = []
+    t = bas
+    while t < bit:
+        ms = int(t.replace(tzinfo=datetime.timezone.utc).timestamp() * 1000)
+        veri = None
+        for url in BACKTEST_KLINE_URL:
+            veri = _dis_json(url, {"symbol": simge, "interval": kod, "startTime": ms, "limit": 1000})
+            if isinstance(veri, list):
+                break
+        if not isinstance(veri, list) or not veri:
+            break
+        for x in veri:
+            dt = datetime.datetime(1970, 1, 1) + datetime.timedelta(milliseconds=x[0])
+            if dt >= bit:
+                break
+            sonuc.append({"zaman": zaman_yaz(dt), "dt": dt, "acilis": float(x[1]), "yuksek": float(x[2]),
+                          "dusuk": float(x[3]), "kapanis": float(x[4])})
+        son = datetime.datetime(1970, 1, 1) + datetime.timedelta(milliseconds=veri[-1][0])
+        t = son + datetime.timedelta(minutes=dk)
+        if len(veri) < 1000:
+            break
+        time.sleep(0.2)
+    return sonuc
+
+
+def bt_veri_hazirla(sembol, bas, bit, dizin):
+    """Isınma + test dönemi verisi (önbellekli)."""
+    yol = os.path.join(dizin, "%s_%s_%s.json" % (sembol.replace("/", ""), bas.strftime("%Y%m%d%H"), bit.strftime("%Y%m%d%H")))
+    kayit = json_oku(yol, None)
+    if isinstance(kayit, dict) and kayit.get("1h"):
+        for d in kayit:
+            for m in kayit[d]:
+                m["dt"] = zaman_coz(m["zaman"])
+        return kayit
+    veri = {}
+    for d, isinma_gun in (("1day", MUM_SAYISI["1day"] + 5), ("4h", MUM_SAYISI["4h"] // 6 + 3), ("1h", MUM_SAYISI["1h"] // 24 + 2)):
+        veri[d] = bt_kline_cek(sembol, d, bas - datetime.timedelta(days=isinma_gun), bit)
+        if not veri[d]:
+            return None
+    try:
+        json_yaz(yol, {d: [{k: m[k] for k in ("zaman", "acilis", "yuksek", "dusuk", "kapanis")} for m in v]
+                       for d, v in veri.items()})
+    except Exception:
+        pass
+    return veri
+
+
+def bt_kaynak(veri, t):
+    """t anında botun göreceği veri: yalnızca kapanmış mumlar (+ 1day için bugünün
+    1h mumlarından oluşan oluşum hâlindeki günlük mum, anahtar seviyeler için)."""
+    dts = {d: [m["dt"] for m in v] for d, v in veri.items()}
+
+    def kaynak(sembol, aralik, adet):
+        dk = BT_ARALIK[aralik][1]
+        v = veri[aralik]
+        son = indeks_bul(dts[aralik], t - datetime.timedelta(minutes=dk) + datetime.timedelta(seconds=1))
+        sonuc = v[max(0, son - adet):son]
+        if aralik == "1day":
+            gun = datetime.datetime(t.year, t.month, t.day)
+            bugun = [m for m in veri["1h"][indeks_bul(dts["1h"], gun):indeks_bul(dts["1h"], t - datetime.timedelta(minutes=59))]]
+            if bugun:
+                sonuc = sonuc + [{"zaman": zaman_yaz(gun), "dt": gun, "acilis": bugun[0]["acilis"],
+                                  "yuksek": max(m["yuksek"] for m in bugun), "dusuk": min(m["dusuk"] for m in bugun),
+                                  "kapanis": bugun[-1]["kapanis"]}]
+        return [dict(m) for m in sonuc]
+    return kaynak
+
+
+def bt_islem_simule(islem, m1h, bas_i):
+    """1h mumlarla emir/işlem simülasyonu (long/short)."""
+    long_mu = islem["yon"] == "LONG"
+    g, sl, tps = islem["giris"], islem["stop"], islem["tps"]
+    tp1 = tps[0]
+    tp2 = tps[1] if len(tps) > 1 else tps[0]
+    ters = (lambda a, b: a <= b) if long_mu else (lambda a, b: a >= b)   # fiyat a, seviye b'ye "aşağı" ulaştı mı
+    ileri = (lambda a, b: a >= b) if long_mu else (lambda a, b: a <= b)
+    dus = (lambda m: m["dusuk"]) if long_mu else (lambda m: m["yuksek"])
+    yuk = (lambda m: m["yuksek"]) if long_mu else (lambda m: m["dusuk"])
+    dolum_i = bas_i if islem["giris_turu"] == "PİYASA" else None
+    if dolum_i is None:
+        for j in range(bas_i, len(m1h)):
+            if (m1h[j]["dt"] - m1h[bas_i]["dt"]).total_seconds() > BACKTEST_LIMIT_MAX_SAAT * 3600:
+                islem["sonuc"] = "iptal (limit zaman aşımı)"
+                return islem
+            if ters(dus(m1h[j]), g):
+                dolum_i = j
+                break
+            if ileri(yuk(m1h[j]), tp1):
+                islem["sonuc"] = "iptal (giriş gelmeden TP1)"
+                return islem
+        if dolum_i is None:
+            islem["sonuc"] = "bekliyor (veri bitti)"
+            return islem
+    islem["dolum_zamani"] = zaman_yaz(m1h[dolum_i]["dt"])
+    risk = abs(g - sl)
+    r_tp1 = abs(tp1 - g) / risk
+    r_tp2 = abs(tp2 - g) / risk
+    tp1_alindi = False
+    for j in range(dolum_i, len(m1h)):
+        m = m1h[j]
+        if ters(dus(m), sl):
+            islem["cikis_zamani"] = zaman_yaz(m["dt"])
+            if tp1_alindi:
+                islem["sonuc"], islem["R_tp1"], islem["R_kademeli"] = "TP1 + stop", r_tp1, 0.5 * r_tp1 - 0.5
+            else:
+                islem["sonuc"], islem["R_tp1"], islem["R_kademeli"] = "stop", -1.0, -1.0
+            return islem
+        if j > dolum_i:  # dolum mumunda hedef sayılmaz (sıra bilinmez; muhafazakâr)
+            if not tp1_alindi and ileri(yuk(m), tp1):
+                tp1_alindi = True
+                islem["R_tp1"] = r_tp1
+            if tp1_alindi and ileri(yuk(m), tp2):
+                islem["cikis_zamani"] = zaman_yaz(m["dt"])
+                islem["sonuc"], islem["R_kademeli"] = "TP1 + TP2", 0.5 * r_tp1 + 0.5 * r_tp2
+                return islem
+        if (m["dt"] - m1h[dolum_i]["dt"]).total_seconds() > BACKTEST_MAX_ISLEM_SAAT * 3600:
+            r_son = (m["kapanis"] - g) / risk * (1 if long_mu else -1)
+            islem["cikis_zamani"] = zaman_yaz(m["dt"])
+            islem["sonuc"] = "zaman aşımı (piyasadan kapatıldı)"
+            islem["R_tp1"] = r_tp1 if tp1_alindi else r_son
+            islem["R_kademeli"] = 0.5 * r_tp1 + 0.5 * r_son if tp1_alindi else r_son
+            return islem
+    r_son = (m1h[-1]["kapanis"] - g) / risk * (1 if long_mu else -1)
+    islem["sonuc"] = "açık (veri bitti)"
+    islem["R_tp1"] = r_tp1 if tp1_alindi else round(r_son, 2)
+    islem["R_kademeli"] = 0.5 * r_tp1 + 0.5 * r_son if tp1_alindi else round(r_son, 2)
+    return islem
+
+
+def backtest_calistir(gun=None, sembol_sayisi=None):
+    global ISTATISTIK_AKTIF, dilim_analiz
+    gun = gun or BACKTEST_GUN
+    sembol_sayisi = sembol_sayisi or BACKTEST_SEMBOL_SAYISI
+    dizin = os.path.join(TEMEL_DIZIN, "backtest")
+    veri_dizin = os.path.join(dizin, "veri")
+    os.makedirs(veri_dizin, exist_ok=True)
+    yollari_ayarla(dizin)
+    ISTATISTIK_AKTIF = False
+    simdi = simdi_utc().replace(minute=0, second=0, microsecond=0)
+    bit = simdi
+    bas = bit - datetime.timedelta(days=gun)
+    if BACKTEST_SEMBOLLER:
+        semboller = list(BACKTEST_SEMBOLLER)
+    else:
+        sira, _ = binance_hacim_sirasi()
+        semboller = [b + "/USD" for b, _ in (sira or [])][:sembol_sayisi] or KRIPTO_SABIT[:sembol_sayisi]
+    eslesmeler = [e for e in eslesmeleri_coz() if "15min" not in e]
+    print("=" * 60)
+    print("GERİYE DÖNÜK TEST | %s -> %s UTC | %d gün | %d sembol | adım %d saat" % (
+        zaman_yaz(bas), zaman_yaz(bit), gun, len(semboller), BACKTEST_ADIM_SAAT))
+    print("Semboller: " + ", ".join(semboller))
+    print("Uyarı: bugünkü hacim listesi geçmişe uygulanır (hayatta kalma yanlılığı olabilir).")
+    orijinal_analiz = dilim_analiz
+    tum_islemler, kacan = [], []
+    baslangic = time.time()
+    for sn, sembol in enumerate(semboller, 1):
+        print("[%d/%d] %s verisi çekiliyor..." % (sn, len(semboller), sembol))
+        veri = bt_veri_hazirla(sembol, bas, bit, veri_dizin)
+        if not veri:
+            print("  veri alınamadı, atlandı")
+            continue
+        onbellek = {}
+
+        def analiz_onbellekli(mumlar, dilim, ob_mod=None, breaker_mod=None):
+            anahtar = (dilim, len(mumlar), mumlar[0]["dt"], mumlar[-1]["dt"], mumlar[-1]["kapanis"], ob_mod, breaker_mod)
+            if anahtar not in onbellek:
+                if len(onbellek) > 40:
+                    onbellek.clear()
+                onbellek[anahtar] = orijinal_analiz(mumlar, dilim, ob_mod, breaker_mod)
+            return onbellek[anahtar]
+        dilim_analiz = analiz_onbellekli
+        m1h = veri["1h"]
+        dts1h = [m["dt"] for m in m1h]
+        gorulen = {}
+        t = bas
+        while t <= bit:
+            try:
+                sonuc = sembol_tara(sembol, eslesmeler, bt_kaynak(veri, t), t, IstatistikToplayici(), [], {})
+            except Exception as e:
+                print("  %s hata: %s" % (zaman_yaz(t), e))
+                t += datetime.timedelta(hours=BACKTEST_ADIM_SAAT)
+                continue
+            for k in sonuc.get("kurulumlar", []):
+                if k["asama"] not in ("sinyal", "kacti") or not k.get("tps") or k.get("stop") is None:
+                    continue
+                kid = kurulum_id(k)
+                if kid in gorulen:
+                    continue
+                gorulen[kid] = t
+                gd = k.get("giris_durum") or {}
+                if k["asama"] == "kacti":
+                    kacan.append({"sembol": sembol, "zaman": zaman_yaz(t), "tip": k["tip"], "yon": k["yon"],
+                                  "neden": (k["notlar"] or [""])[0][:120]})
+                    continue
+                # 24 saat içinde aynı sembol+yön+bölge tekrarı alınmaz (CSV kuralı)
+                if any(x["sembol"] == sembol and x["yon"] == k["yon"] and
+                       ortust(x["giris_alt"], x["giris_ust"], k["giris_alt"], k["giris_ust"]) and
+                       (t - zaman_coz(x["sinyal_zamani"])).total_seconds() < TEKRAR_YAZMA_SAAT * 3600
+                       for x in tum_islemler):
+                    continue
+                agresif = "SFP_AGRESIF" in k.get("anahtar_dt", "")
+                if gd.get("durum") == "aktif":
+                    tur, giris = "PİYASA", gd["fiyat"]
+                else:
+                    tur, giris = ("AGRESİF" if agresif else "LİMİT"), k["giris"]
+                islem = {"sembol": sembol, "eslesme": k["eslesme"], "tip": k["tip"], "yon": k["yon"],
+                         "giris_turu": tur, "sinyal_zamani": zaman_yaz(t), "tetik": k.get("zaman", ""),
+                         "giris": giris, "oneri_giris": k["giris"], "giris_alt": k["giris_alt"], "giris_ust": k["giris_ust"],
+                         "stop": k["stop"], "tps": [p for p, _ in k["tps"]][:2], "skor": k["skor"],
+                         "ham_puan": k["ham_puan"], "konseptler": konsept_etiketi(k), "sonuc": "", "dolum_zamani": "",
+                         "cikis_zamani": "", "R_tp1": 0.0, "R_kademeli": 0.0}
+                bas_i = indeks_bul(dts1h, t)
+                bt_islem_simule(islem, m1h, bas_i)
+                tum_islemler.append(islem)
+            t += datetime.timedelta(hours=BACKTEST_ADIM_SAAT)
+        n = sum(1 for x in tum_islemler if x["sembol"] == sembol)
+        print("  %d emir (%.0f sn)" % (n, time.time() - baslangic))
+    dilim_analiz = orijinal_analiz
+    bt_rapor_yaz(dizin, tum_islemler, kacan, bas, bit, semboller)
+
+
+def bt_ozet(liste):
+    dolan = [x for x in liste if x["dolum_zamani"]]
+    kapanan = [x for x in dolan if x["cikis_zamani"] or x["sonuc"].startswith("zaman")]
+    kazanan = [x for x in kapanan if x["R_kademeli"] > 0]
+    toplam = sum(x["R_kademeli"] for x in dolan)
+    return {"emir": len(liste), "dolan": len(dolan), "kapanan": len(kapanan),
+            "isabet": (100.0 * len(kazanan) / len(kapanan)) if kapanan else 0.0,
+            "toplam_R": toplam, "ort_R": toplam / len(dolan) if dolan else 0.0,
+            "toplam_R_tp1": sum(x["R_tp1"] for x in dolan)}
+
+
+def bt_rapor_yaz(dizin, islemler, kacan, bas, bit, semboller):
+    yol_csv = os.path.join(dizin, "islemler_%s.csv" % bit.strftime("%Y-%m-%d_%H-%M"))
+    kolonlar = ["sembol", "eslesme", "tip", "yon", "giris_turu", "sinyal_zamani", "tetik", "giris", "oneri_giris",
+                "stop", "tp1", "tp2", "skor", "ham_puan", "dolum_zamani", "cikis_zamani", "sonuc", "R_tp1",
+                "R_kademeli", "konseptler"]
+    with open(yol_csv, "w", newline="", encoding="utf-8") as f:
+        w = csv.writer(f)
+        w.writerow(kolonlar)
+        for x in sorted(islemler, key=lambda x: x["sinyal_zamani"]):
+            ref = x["giris"]
+            w.writerow([x["sembol"], x["eslesme"], x["tip"], x["yon"], x["giris_turu"], x["sinyal_zamani"], x["tetik"],
+                        yuvarla(x["giris"], ref), yuvarla(x["oneri_giris"], ref), yuvarla(x["stop"], ref),
+                        yuvarla(x["tps"][0], ref), yuvarla(x["tps"][-1], ref), x["skor"], x["ham_puan"],
+                        x["dolum_zamani"], x["cikis_zamani"], x["sonuc"], round(x["R_tp1"], 2),
+                        round(x["R_kademeli"], 2), x["konseptler"]])
+    s = ["DD FINANCE PA BOTU – GERİYE DÖNÜK TEST (Binance gerçek verisi)", "=" * 60,
+         "Dönem: %s -> %s UTC | Semboller (%d): %s" % (zaman_yaz(bas), zaman_yaz(bit), len(semboller), ", ".join(semboller)),
+         "Tarama sıklığı: %d saat | Limit emir ömrü: %d saat | Çıkış: TP1 %%50 + TP2 %%50, stop sabit" % (
+             BACKTEST_ADIM_SAAT, BACKTEST_LIMIT_MAX_SAAT),
+         "Giriş türleri: AGRESİF = SFP_AGRESIF limit | LİMİT = dolmamış girişe limit | PİYASA = dolmuş ama geçerli, güncel fiyattan",
+         "Not: geçmiş sonuç geleceği garanti etmez; komisyon/kayma dahil değildir.", ""]
+
+    def satir(ad, o):
+        return "  %-26s emir %4d | dolan %4d | isabet %5.1f%% | toplam %+7.2fR | ort %+5.2fR/işlem | (hepsi TP1: %+7.2fR)" % (
+            ad, o["emir"], o["dolan"], o["isabet"], o["toplam_R"], o["ort_R"], o["toplam_R_tp1"])
+    s.append("GENEL")
+    s.append(satir("Tümü", bt_ozet(islemler)))
+    for baslik, anahtar in (("GİRİŞ TÜRÜNE GÖRE", "giris_turu"), ("KURULUM TİPİNE GÖRE", "tip"),
+                            ("EŞLEŞMEYE GÖRE", "eslesme"), ("SKORA GÖRE", "skor"), ("YÖNE GÖRE", "yon")):
+        s.append("")
+        s.append(baslik)
+        for deger in sorted(set(str(x[anahtar]) for x in islemler)):
+            s.append(satir(deger, bt_ozet([x for x in islemler if str(x[anahtar]) == deger])))
+    s.append("")
+    s.append("SEMBOLE GÖRE")
+    for sem in semboller:
+        alt = [x for x in islemler if x["sembol"] == sem]
+        if alt:
+            s.append(satir(sem, bt_ozet(alt)))
+    # En büyük düşüş (R, kümülatif)
+    egri, tepe, dd = 0.0, 0.0, 0.0
+    for x in sorted([x for x in islemler if x["cikis_zamani"]], key=lambda x: x["cikis_zamani"]):
+        egri += x["R_kademeli"]
+        tepe = max(tepe, egri)
+        dd = min(dd, egri - tepe)
+    s.append("")
+    s.append("En büyük düşüş (kümülatif, kademeli çıkış): %.2fR" % dd)
+    sonuc_say = {}
+    for x in islemler:
+        sonuc_say[x["sonuc"]] = sonuc_say.get(x["sonuc"], 0) + 1
+    s.append("Sonuç dağılımı: " + ", ".join("%s: %d" % kv for kv in sorted(sonuc_say.items())))
+    s.append("Sinyal anında girişi zaten kaçmış (emir açılmayan) kurulum: %d" % len(kacan))
+    yol_txt = os.path.join(dizin, "ozet_%s.txt" % bit.strftime("%Y-%m-%d_%H-%M"))
+    with open(yol_txt, "w", encoding="utf-8") as f:
+        f.write("\n".join(s) + "\n")
+    print("\n".join(s))
+    print("\nİşlem listesi: %s\nÖzet: %s" % (yol_csv, yol_txt))
+
+
+# =============================================================================
 #                                 GİRİŞ NOKTASI
 # =============================================================================
 
@@ -4532,6 +4851,9 @@ if __name__ == "__main__":
     argumanlar = sys.argv[1:]
     if "--test" in argumanlar:
         sys.exit(0 if testleri_calistir() else 1)
+    elif "--backtest" in argumanlar:
+        sayilar = [int(x) for x in argumanlar if x.isdigit()]
+        backtest_calistir(sayilar[0] if sayilar else None, sayilar[1] if len(sayilar) > 1 else None)
     elif "--demo" in argumanlar:
         yollari_ayarla(os.path.join(TEMEL_DIZIN, "demo"))
         os.makedirs(YOLLAR["dizin"], exist_ok=True)

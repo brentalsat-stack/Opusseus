@@ -9,3 +9,4 @@ __pycache__/
 *.tmp
 kripto_listesi.json
 plan_disi_semboller.json
+backtest/

@@ -26,6 +26,33 @@ manuel açıp kapatır. Eğitim amaçlıdır; yatırım tavsiyesi değildir.
 **Uyarı (iOS):** a-Shell arka plana alınınca işlem durabilir. `DONGU_DAKIKA > 0` ile uzun döngüde
 çalıştırırken ekranı açık tutun.
 
+## Geriye dönük test (`--backtest`)
+
+```
+python3 bot.py --backtest            # varsayılan: son 30 gün, hacme göre ilk 20 kripto
+python3 bot.py --backtest 14 10      # son 14 gün, 10 çift
+```
+
+- **Veri:** Binance'in herkese açık mum verisi (`data-api.binance.vision`, yedek `api.binance.com`).
+  Twelve Data kredisi harcanmaz. Çekilen veri `backtest/veri/` klasöründe önbelleklenir.
+- **Yöntem:** Bot, geçmişte her `BACKTEST_ADIM_SAAT` saatte bir tarama yapıyormuş gibi adım adım ilerletilir.
+  Her adımda yalnızca o ana kadar **kapanmış** mumları görür, geleceğe bakmaz. Canlı taramadaki kurallar
+  (tazelik, canlı giriş kontrolü, yapı iptali, 24 saat tekrar kuralı) aynen uygulanır.
+- **Emir türleri:**
+  - `AGRESİF`: SFP_AGRESIF girişi (seviyenin hemen berisine limit).
+  - `LİMİT`: dolmamış girişe limit emir. `BACKTEST_LIMIT_MAX_SAAT` içinde dolmazsa ya da giriş gelmeden TP1
+    görülürse iptal edilir.
+  - `PİYASA`: giriş zaten dolmuş ama güncel fiyattan R/R hâlâ `MIN_RR` üstünde; güncel fiyattan girilir.
+- **Çıkış:** Stop -1R. TP1'de %50, TP2'de %50 kapatılır; stop girişe çekilmez (şartname 11.5). "Hepsi TP1"
+  sonucu da ayrıca yazılır. Aynı mumda stop ve hedef birlikte görülürse önce stop varsayılır (muhafazakâr).
+- **Çıktılar:** `backtest/islemler_*.csv` (her emir: giriş türü, dolum ve çıkış saati, sonuç, R) ve
+  `backtest/ozet_*.txt` (giriş türü / kurulum tipi / eşleşme / skor / sembol bazında isabet ve R).
+- **Süre:** Sembol başına test saati başına yaklaşık 0,1 sn. 20 çift × 30 gün ≈ 25 dk (bilgisayarda);
+  a-Shell'de daha uzun sürebilir, ekranı açık tutun ya da `--backtest 14 10` ile başlayın.
+- **Sınırlar:** Komisyon, fonlama ve kayma dahil değildir. Bugünkü hacim listesi geçmişe uygulanır
+  (hayatta kalma yanlılığı). Veri **spot** piyasadır; perpetual (ör. SOLUSDT.P) fiyatları birkaç tik
+  farklı olabilir ve limitler farklı dolabilir.
+
 ## Dosyalar
 
 | Dosya | İçerik |
