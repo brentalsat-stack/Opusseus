@@ -158,6 +158,8 @@ SR_MAX_SEVIYE = 3
 # --- RANGE / DEVİASYON -------------------------------------------------------
 RANGE_MIN_MUM = 20
 RANGE_MIN_TEMAS = 2
+RANGE_ONCEKI_HAREKET_KAT = 1.0      # Range'den önceki hareket >= range yüksekliği x bu kat (DD: "büyük göreceli hareketten sonra")
+RANGE_ONCEKI_MUM = 30               # Önceki hareket için range başlangıcından geriye bakılan mum
 FITIL_DAHIL = False                 # Range ve PO3 kutuları gövdeden çizilir
 MANIPULASYON_MAX_MUM = 10
 
@@ -1761,6 +1763,14 @@ def range_tespit(mumlar, atrs, ana_swingler):
         a = atrs[max(h["i"], l["i"])]
         if rh - rl < a:
             continue
+        # DD not 3: range, büyük göreceli hareketten sonra oluşan yatay bölgedir
+        b0 = max(0, min(h["i"], l["i"]) - RANGE_ONCEKI_MUM)
+        onceki = mumlar[b0:min(h["i"], l["i"])]
+        if not onceki:
+            continue
+        hareket = max(max(m["yuksek"] for m in onceki) - rh, rl - min(m["dusuk"] for m in onceki))
+        if hareket < RANGE_ONCEKI_HAREKET_KAT * (rh - rl):
+            continue
         bas = min(h["i"], l["i"])
         devs, dis, kirilim, rh_temas, rl_temas = range_izle(mumlar, atrs, rh, rl, max(h["i"], l["i"]) + 1, h["i"], l["i"])
         bit = kirilim["bas_i"] if kirilim else N - 1
@@ -2699,6 +2709,10 @@ def poi_bul(ctx):
         for sr in htf["srs"]:
             if sr.get("yon") == "long" and sr["flip"] == "teyitli" and ortust(sr["alt"], sr["ust"], z["alt"], z["ust"], tol):
                 maddeler.append(madde("SR_FLIP", 0.5 + (0.5 if sr["temas"] >= 5 else 0), "bolge", sr["alt"], sr["ust"], "SR"))
+                break
+        for r in htf["rangeler"]:
+            if r["durum"] in ("aktif", "deviasyonda") and z["alt"] - tol <= r["rl"] <= z["ust"] + tol:
+                maddeler.append(madde("RANGE_UCU(RL)", 0.5, grup="RANGE_UCU", anahtar="RANGE_UCU"))
                 break
         for r in htf["rangeler"]:
             for d in r.get("devs_detay", []):
@@ -4564,6 +4578,14 @@ def testleri_calistir():
     kontrol("Giriş kontrolü: stop referansı ötesinde kapanış (stop değmeden) -> İPTAL",
             gdurum([_h(0, 101, 101.5, 99.8, 100.2), _h(1, 100.2, 100.3, 98.2, 98.4)], ltf_boz) == "yapi_bozuldu")
     kontrol("Giriş kontrolü: doldu sonra stop -> eski", gdurum([_h(0, 101, 101.5, 99.8, 100.2), _h(1, 100.2, 100.3, 97.5, 98)]) == "stop")
+
+    # --- Range: büyük göreceli hareketten sonra (DD not 3) ---
+    ry = _yol([(0, 130), (10, 108), (15, 100.5), (20, 109.5), (25, 100.5), (30, 109.5), (35, 100.5), (40, 109.5), (45, 104)])
+    ry_sw = swing_noktalari(ry, 2)
+    kontrol("Range: sert düşüşten sonraki yatay bölge range olarak bulunuyor", bool(range_tespit(ry, atr_listesi(ry), ry_sw)))
+    rd = _yol([(0, 106), (10, 104), (15, 100.5), (20, 109.5), (25, 100.5), (30, 109.5), (35, 100.5), (40, 109.5), (45, 104)])
+    kontrol("Range: öncesinde büyük hareket yoksa range sayılmıyor",
+            not any(r["bas_i"] >= 12 for r in range_tespit(rd, atr_listesi(rd), swing_noktalari(rd, 2))))
 
     # --- Monday range (şartname 7.7) ---
     pzt_bas = datetime.datetime(2026, 9, 21)
