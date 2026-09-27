@@ -96,7 +96,12 @@ MIN_RR = 1.5
 POI_MIN_PUAN = 1.5
 ONAY_MAX_MUM = 20
 RETEST_MAX_MUM = 15
-SINYAL_TAZELIK_MUM = 3      # Tetik mumu son kaç onay mumu içindeyse "yeni sinyal"
+SINYAL_TAZELIK_MUM = 1      # Tetik mumu son kaç kapanmış onay mumu içindeyse "yeni sinyal"
+SINYAL_MAX_YAS_SAAT = 6     # Tetik mumunun kapanışından bu yana en fazla geçen süre (saat)
+LIMIT_MAX_UZAKLIK_R = 3.0   # Dolmamış limit girişten bu kadar R uzaklaştıysa "kaçtı" sayılır
+# Canlı giriş kontrolü (1h ham veri, kapanmamış mum dahil):
+#  - Giriş dolmadıysa sinyal "LİMİT" olarak raporlanır (fiyat TP1'e girişsiz gittiyse kaçtı).
+#  - Giriş dolduysa güncel fiyattan R/R hesaplanır; MIN_RR altındaysa "giriş kaçtı".
 TEKRAR_YAZMA_SAAT = 24      # Aynı sembol+yön+giriş bölgesi bu süre içinde tekrar yazılmaz
 BOLGE_MAX_YAS_MUM = 400     # POI olarak değerlendirilecek bölgenin en fazla yaşı (mum)
 
@@ -2465,9 +2470,12 @@ def rr_hesapla(k):
 
 
 def sonuc_degerlendir(m, r, k):
-    """Sinyal sonrası: stop / TP1-2-3 / açık (long çerçeve)."""
+    """Sinyal sonrası: stop / TP1-2-3 / açık (long çerçeve). Sayım giriş dolduktan sonra başlar."""
     ulasilan = 0
-    for j in range(r + 1, len(m)):
+    dolum = next((j for j in range(r, len(m)) if m[j]["dusuk"] <= k["giris"]), None)
+    if dolum is None:
+        return "dolmadı", None
+    for j in range(dolum, len(m)):
         if m[j]["dusuk"] <= k["stop"]:
             return ("stop" if ulasilan == 0 else "tp%d" % ulasilan), j
         for n, (tp, _) in enumerate(k["tps"], 1):
@@ -3198,6 +3206,41 @@ def desen_kurulumlari(ctx, pois):
     return sonuc
 
 
+def giris_durumu(ctx, k):
+    """Canlı kontrol (long çerçeve, 1h ham veri, kapanmamış mum dahil):
+    giriş doldu mu, stop/TP1 görüldü mü, güncel fiyattan R/R ne?"""
+    m = ctx.get("m1h_ham") or []
+    if not m or not k["tps"] or k.get("stop") is None or k.get("tetik_i") is None:
+        return None
+    tp1 = k["tps"][0][0]
+    t0 = ctx["ltf"]["dts"][k["tetik_i"]]
+    bas = indeks_bul([x["dt"] for x in m], t0)
+    dolum = None
+    for j in range(bas, len(m)):
+        x = m[j]
+        if dolum is None:
+            if x["dusuk"] <= k["giris"]:
+                dolum = j
+            elif x["yuksek"] >= tp1:
+                return {"durum": "hedef_girissiz", "zaman": zaman_yaz(x["dt"])}
+            else:
+                continue
+        if x["dusuk"] <= k["stop"]:
+            return {"durum": "stop", "zaman": zaman_yaz(x["dt"])}
+        if j > dolum and x["yuksek"] >= tp1:
+            return {"durum": "tp1", "zaman": zaman_yaz(x["dt"])}
+    p = m[-1]["kapanis"]
+    sonuc = {"fiyat": p, "fiyat_zaman": zaman_yaz(m[-1]["dt"]),
+             "dolum": zaman_yaz(m[dolum]["dt"]) if dolum is not None else None}
+    if dolum is None:
+        sonuc["uzaklik_r"] = round((p - k["giris"]) / (k["giris"] - k["stop"]), 2)
+        sonuc["durum"] = "limit" if sonuc["uzaklik_r"] <= LIMIT_MAX_UZAKLIK_R else "limit_uzak"
+    else:
+        sonuc["guncel_rr"] = round((tp1 - p) / (p - k["stop"]), 2) if p > k["stop"] else 0.0
+        sonuc["durum"] = "aktif" if sonuc["guncel_rr"] >= MIN_RR else "kacti"
+    return sonuc
+
+
 def cerceve_tara(ctx):
     """Bir eşleşme + yön (çerçeve) için tüm kurulumlar."""
     ltf, htf = ctx["ltf"], ctx["htf"]
@@ -3215,11 +3258,31 @@ def cerceve_tara(ctx):
     N = len(ltf["m"])
     for k in kurulumlar:
         k["zaman"] = zaman_yaz(ltf["dts"][k["tetik_i"]]) if k.get("tetik_i") is not None and k["tetik_i"] < N else ""
-        # Tazelik: tetik son SINYAL_TAZELIK_MUM mum içinde olmalı, sonrasında stop/TP1 olmamalı
+        # Tazelik: tetik son SINYAL_TAZELIK_MUM mum ve SINYAL_MAX_YAS_SAAT içinde olmalı;
+        # ardından canlı fiyatla giriş kontrolü (doldu mu / kaçtı mı / stop-TP1 görüldü mü)
         if k["asama"] == "sinyal":
             k["sonuc"], _ = sonuc_degerlendir(ltf["m"], k["tetik_i"], k) if k.get("stop") else ("?", None)
-            if k["tetik_i"] < N - 1 - SINYAL_TAZELIK_MUM or k["sonuc"] != "açık":
+            yas = 0.0
+            if ctx.get("simdi"):
+                yas = (ctx["simdi"] - kapanis_zamani(ltf, k["tetik_i"])).total_seconds() / 3600.0
+            gec = k["tetik_i"] < N - 1 - SINYAL_TAZELIK_MUM or yas > SINYAL_MAX_YAS_SAAT
+            if k["sonuc"] not in ("açık", "dolmadı") or k["tetik_i"] < N - 1 - RETEST_MAX_MUM:
                 k["asama"] = "eski"
+                continue
+            gd = giris_durumu(ctx, k)
+            k["giris_durum"] = gd
+            if gd is None:
+                if gec:
+                    k["asama"] = "eski"
+                continue
+            if gd["durum"] in ("stop", "tp1"):
+                k["asama"] = "eski"
+            elif gd["durum"] in ("hedef_girissiz", "kacti", "limit_uzak"):
+                k["asama"] = "kacti"
+            elif gec:
+                # Geç kalmış ama girişi hâlâ geçerli: yeni sinyal yazılmaz, izleme listesinde gösterilir
+                k["asama"] = "izleme"
+                k["gec_saat"] = round(yas, 1)
         elif k["asama"] in ("izleme", "iptal", "kacti") and (k.get("tetik_i") is None or k["tetik_i"] < N - 1 - RETEST_MAX_MUM):
             k["asama"] = "eski_" + k["asama"]  # raporlanmaz (yalnızca istatistik)
     return kurulumlar, pois
@@ -3240,8 +3303,12 @@ def kurulum_geri_cevir(k):
     """Ayna çerçevede bulunan (short) kurulumun fiyatlarını gerçek eksene çevirir."""
     if not k["ayna"]:
         k["yon"] = "LONG"
+        giris_notu_ekle(k)
         return k
     k["yon"] = "SHORT"
+    gd = k.get("giris_durum")
+    if gd and gd.get("fiyat") is not None:
+        gd["fiyat"] = -gd["fiyat"]
     k["giris"], k["stop_ref"], k["stop"] = _ters(k["giris"]), _ters(k["stop_ref"]), _ters(k["stop"])
     if k["giris_alt"] is not None:
         k["giris_alt"], k["giris_ust"] = -k["giris_ust"], -k["giris_alt"]
@@ -3253,7 +3320,36 @@ def kurulum_geri_cevir(k):
             if x["ad"] == "SD:" + eski:
                 x["ad"] = "SD:" + yeni
                 break
+    giris_notu_ekle(k)
     return k
+
+
+def giris_notu_ekle(k):
+    """Canlı giriş durumunu (gerçek fiyatlarla) nota yazar."""
+    gd = k.get("giris_durum")
+    if not gd:
+        return
+    ref = k.get("giris")
+    d = gd["durum"]
+    if d == "limit":
+        k["giris_etiketi"] = "LİMİT"
+        k["notlar"].insert(0, "GİRİŞ DOLMADI: limit emir; güncel fiyat %s (%s UTC), girişten %+.2fR" % (
+            yuvarla(gd["fiyat"], ref), gd["fiyat_zaman"], gd["uzaklik_r"]))
+    elif d == "aktif":
+        k["giris_etiketi"] = "AKTİF"
+        k["notlar"].insert(0, "GİRİŞ DOLDU (%s UTC); güncel fiyat %s, güncel fiyattan R/R %s" % (
+            gd["dolum"], yuvarla(gd["fiyat"], ref), gd["guncel_rr"]))
+    elif d == "kacti":
+        k["notlar"].insert(0, "GİRİŞ KAÇTI: doldu (%s UTC) ama güncel fiyat %s, güncel R/R %s < %s; fiyat girişe dönerse geçerli" % (
+            gd["dolum"], yuvarla(gd["fiyat"], ref), gd["guncel_rr"], MIN_RR))
+    elif d == "limit_uzak":
+        k["notlar"].insert(0, "KAÇTI: giriş dolmadı, fiyat girişten %+.2fR uzaklaştı (> LIMIT_MAX_UZAKLIK_R=%s); güncel fiyat %s" % (
+            gd["uzaklik_r"], LIMIT_MAX_UZAKLIK_R, yuvarla(gd["fiyat"], ref)))
+    elif d == "hedef_girissiz":
+        k["notlar"].insert(0, "KAÇTI: giriş gelmeden fiyat TP1'e ulaştı (%s UTC)" % gd["zaman"])
+    if k.get("gec_saat") is not None:
+        k["notlar"].insert(0, "GEÇ SİNYAL: tetik mumu %s saat önce kapandı (SINYAL_MAX_YAS_SAAT=%s); yeni sinyal olarak yazılmadı" % (
+            k["gec_saat"], SINYAL_MAX_YAS_SAAT))
 
 
 def konsept_etiketi(k):
@@ -3568,9 +3664,10 @@ def ekran_satiri(k):
     ref = k["giris"]
     tp = "/".join(str(yuvarla(p, ref)) for p, _ in k["tps"]) or "-"
     rr = "/".join(str(x) for x in k["rr"]) or "-"
-    return "%s %s→%s %s skor %s%s | giriş %s-%s (öneri %s) | SL %s | TP %s | R/R %s" % (
+    return "%s %s→%s %s skor %s%s%s | tetik %s UTC | giriş %s-%s (öneri %s) | SL %s | TP %s | R/R %s" % (
         k["sembol"], k["poi_dilim"], k["onay_dilim"], k["yon"], k["skor"],
-        " [%s]" % k["tip"] if k["tip"] != "POI" else "", yuvarla(k["giris_alt"], ref), yuvarla(k["giris_ust"], ref), yuvarla(k["giris"], ref),
+        " [%s]" % k["tip"] if k["tip"] != "POI" else "",
+        " [%s]" % k["giris_etiketi"] if k.get("giris_etiketi") else "", k.get("zaman", "?"), yuvarla(k["giris_alt"], ref), yuvarla(k["giris_ust"], ref), yuvarla(k["giris"], ref),
         yuvarla(k["stop"], ref), tp, rr)
 
 
@@ -3852,7 +3949,8 @@ def sembol_tara(sembol, eslesmeler, kaynak, simdi, top, oto_notlar, ham):
             ctx = {"sembol": sembol, "eslesme": "%s→%s" % (poi_d, onay_d), "ayna": ay,
                    "htf": an[ay][poi_d], "ltf": an[ay][onay_d], "an": an[ay],
                    "anahtar": [{"ad": s["ad"], "seviye": -s["seviye"] if ay else s["seviye"]} for s in anahtar],
-                   "gaps": gaps, "katsayilar": katsayilar.get(onay_d, {})}
+                   "gaps": gaps, "katsayilar": katsayilar.get(onay_d, {}), "simdi": simdi,
+                   "m1h_ham": ayna(ham["1h"]) if ay else ham["1h"]}
             ks, _ = cerceve_tara(ctx)
             for k in ks:
                 kurulumlar.append(kurulum_geri_cevir(k))
@@ -3905,8 +4003,18 @@ def acik_sinyal_kontrol(hafiza, sembol, an):
         long_mu = kayit["yon"] == "LONG"
         tps = kayit.get("tps") or []
         ulasilan = 0
-        for j in range(i0, len(a["m"])):
+        doldu = False
+        for j in range(i0 - 1, len(a["m"])):
             m = a["m"][j]
+            if not doldu:
+                g = kayit.get("giris")
+                if g is None or (long_mu and m["dusuk"] <= g) or (not long_mu and m["yuksek"] >= g):
+                    doldu = True
+                elif tps and ((long_mu and m["yuksek"] >= tps[0]) or (not long_mu and m["dusuk"] <= tps[0])):
+                    kayit["takip_sonuc"] = "giriş dolmadan TP1'e gitti"
+                    break
+                else:
+                    continue
             if (long_mu and m["dusuk"] <= kayit["stop"]) or (not long_mu and m["yuksek"] >= kayit["stop"]):
                 kayit["takip_sonuc"] = "stop" if ulasilan == 0 else "tp%d" % ulasilan
                 break
@@ -4358,6 +4466,21 @@ def testleri_calistir():
     b = mum_birlestir(m4, 3, 240)
     kontrol("Mum birleştirme: 4h x3 -> 12h (açılış ilk, kapanış son, max/min)",
             len(b) == 2 and b[0]["acilis"] == 100 and b[0]["kapanis"] == 102.5 and b[0]["yuksek"] == 103 and b[0]["dusuk"] == 99)
+
+    # --- Canlı giriş kontrolü (doldu / kaçtı / limit) ---
+    base = datetime.datetime(2026, 9, 27, 0, 0)
+    def _h(i, o, h, l, c):
+        return {"dt": base + datetime.timedelta(hours=i), "acilis": o, "yuksek": h, "dusuk": l, "kapanis": c}
+    ltf_s = {"dts": [base], "dilim": "1h"}
+    kk = {"giris": 100.0, "stop": 98.0, "tps": [(106.0, "x")], "tetik_i": 0}
+    def gdurum(seri):
+        return giris_durumu({"m1h_ham": seri, "ltf": ltf_s}, dict(kk))["durum"]
+    kontrol("Giriş kontrolü: dolmadı -> LİMİT", gdurum([_h(0, 101, 101.5, 100.5, 101), _h(1, 101, 101.2, 100.6, 101)]) == "limit")
+    kontrol("Giriş kontrolü: doldu, fiyat girişe yakın -> AKTİF", gdurum([_h(0, 101, 101.5, 99.8, 100.2), _h(1, 100.2, 100.6, 100, 100.4)]) == "aktif")
+    kontrol("Giriş kontrolü: doldu, fiyat uzaklaştı (güncel R/R < MIN_RR) -> KAÇTI",
+            gdurum([_h(0, 101, 101.5, 99.8, 100.2), _h(1, 100.2, 103.6, 100.1, 103.5)]) == "kacti")
+    kontrol("Giriş kontrolü: giriş gelmeden TP1 -> KAÇTI", gdurum([_h(0, 101, 106.5, 100.5, 106)]) == "hedef_girissiz")
+    kontrol("Giriş kontrolü: doldu sonra stop -> eski", gdurum([_h(0, 101, 101.5, 99.8, 100.2), _h(1, 100.2, 100.3, 97.5, 98)]) == "stop")
 
     # --- Forex hafta sonu ---
     cmt = datetime.datetime(2026, 9, 26, 5, 0)

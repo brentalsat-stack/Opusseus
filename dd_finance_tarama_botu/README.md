@@ -74,8 +74,16 @@ açılırsa sembol başına 4 istek olur; bütçe yetmezse 15min yalnızca aday 
 - **Durum makinesi yeniden oynatılır:** Her taramada POI → temas → CHoCH/MSB → re-test akışı mevcut mumlar
   üzerinde baştan hesaplanır. `kurulumlar.json` kurulumların kimliğini, aşama geçmişini ve arşivi tutar.
   Böylece a-Shell kapansa bile durum kaybolmaz.
-- **Yeni sinyal** = re-test (tetik) mumu son `SINYAL_TAZELIK_MUM` onay mumu içindedir ve o zamandan beri
-  stop ya da TP1 görülmemiştir. Daha eski sinyaller yalnızca istatistiğe girer.
+- **Yeni sinyal** = tetik (re-test) mumu son `SINYAL_TAZELIK_MUM` kapanmış onay mumu içindedir ve kapanışından
+  bu yana en fazla `SINYAL_MAX_YAS_SAAT` (6) saat geçmiştir. Ardından **canlı giriş kontrolü** yapılır (1h ham veri,
+  kapanmamış mum dahil):
+  - `[LİMİT]`: giriş henüz dolmadı (limit emir). Fiyat girişten `LIMIT_MAX_UZAKLIK_R` (3R) fazla uzaklaştıysa
+    ya da giriş gelmeden TP1'e gittiyse **kaçtı** sayılır.
+  - `[AKTİF]`: giriş doldu ve güncel fiyattan R/R hâlâ `MIN_RR` üstünde.
+  - **Giriş kaçtı**: giriş doldu ama fiyat uzaklaştı (güncel R/R < `MIN_RR`) → yeni sinyal yazılmaz, rapordaki
+    "İptal / kaçan" bölümünde gösterilir. Stop veya TP1 görüldüyse yalnızca istatistiğe girer.
+  - Geç kalmış ama girişi hâlâ geçerli kurulumlar "GEÇ SİNYAL" notuyla izleme listesinde gösterilir.
+  Her sinyal satırında tetik mumunun saati (UTC), notlarda güncel fiyat ve dolum saati yazar.
 - **POI tabanı:** S&D temeldir. DD'ye göre her konsept kendi içinde bir S&D olduğundan geçerli HTF
   OB'leri ve breaker bölgeleri de POI tabanı olabilir. Her durumda `POI_MIN_PUAN` şartı aranır.
 - **2h** (OB çoklu dilim teyidi) ek istek yapılmadan 1h'den türetilir (`TURETILMIS_DILIMLER`).
