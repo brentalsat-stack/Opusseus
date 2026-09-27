@@ -5008,6 +5008,8 @@ if __name__ == "__main__":
             BACKTEST_ESLESME_HARIC.append("1day→4h")
         if "--no-piyasa" in argumanlar:
             BACKTEST_GIRIS_TURU_HARIC.append("PİYASA")
+        if "--no-agresif" in argumanlar:
+            BACKTEST_GIRIS_TURU_HARIC.append("AGRESİF")
         for a in argumanlar:
             if a.startswith("--min-skor="):
                 BACKTEST_MIN_SKOR = int(a.split("=")[1])
