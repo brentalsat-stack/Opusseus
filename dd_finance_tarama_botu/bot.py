@@ -76,7 +76,9 @@ PLAN_DISI_BEKLEME_GUN = 7   # Planınızda olmayan sembol bu kadar gün atlanır
 
 # --- ZAMAN DİLİMLERİ ---------------------------------------------------------
 ZAMAN_DILIMI_ESLEME = {"1day": "4h", "4h": "1h", "1h": "15min"}   # POI dilimi -> onay dilimi
-AKTIF_ESLEMELER = ["1day→4h", "4h→1h"]
+# 1day→4h backtest'te (60 ve 120 gün, 20 sembol) iki dönemde de tutarlı negatif çıktı
+# (-26R / -53R); 4h→1h ise her iki dönemde de pozitifti. Bu yüzden canlı taramadan çıkarıldı.
+AKTIF_ESLEMELER = ["4h→1h"]
 MUM_SAYISI = {"1day": 300, "4h": 900, "1h": 500, "15min": 300}      # outputsize
 # Ek istek yapılmadan birleştirilen dilimler: hedef -> (kaynak, kat)
 # (2h, OB çoklu dilim teyidi için 1h'den türetilir; ek istek gerektirmez.)
@@ -91,7 +93,10 @@ DISPLACEMENT_ATR = 1.5      # Güçlü mum eşiği (gövde / ATR)
 STOP_TAMPON_ATR = 0.2       # Tüm stoplara eklenen pay
 
 # --- SİNYAL VE RİSK ----------------------------------------------------------
-MIN_SKOR = 3
+# Backtest (60 ve 120 gün, 20 sembol, 4h→1h + LİMİT + KIRILIM girişleriyle): skor 3-4
+# tutarlı negatif (-13 .. -25R), skor 5 tutarlı çok pozitif (+22 .. +26R). MIN_SKOR bu
+# yüzden 5'e çekildi; skor 3-4 kurulumlar artık "sinyal" değil "izleme"de kalır.
+MIN_SKOR = 5
 MIN_RR = 1.5
 POI_MIN_PUAN = 1.5
 ONAY_MAX_MUM = 20
@@ -167,7 +172,10 @@ MANIPULASYON_MAX_MUM = 10
 SFP_GECERLILIK_MUM = 5
 SFP_MAX_DERINLIK_ATR = 1.5
 SFP_SWING_YASI_MIN_MUM = 5
-SFP_GIRIS_MODU = "ikisi"            # SFP_AGRESIF / SFP_KIRILIM / ikisi
+# Backtest'te AGRESİF (SFP_AGRESIF) girişlerin 13/13'ü stop oldu (%0 isabet, çok dar
+# stop mesafesi -> sürekli re-wick). KIRILIM girişleri (LİMİT) pozitifti. Bu yüzden
+# canlı taramada artık sadece kırılım girişi üretiliyor.
+SFP_GIRIS_MODU = "kirilim"          # SFP_AGRESIF / SFP_KIRILIM / ikisi
 
 # --- MITIGATION --------------------------------------------------------------
 MITIGATION_MIN_FARK_ATR = 0.2
@@ -3370,6 +3378,12 @@ def cerceve_tara(ctx):
                 k["asama"] = "iptal"
             elif gd["durum"] in ("hedef_girissiz", "kacti", "limit_uzak"):
                 k["asama"] = "kacti"
+            elif gd["durum"] == "aktif":
+                # Backtest'te PİYASA (giriş zaten dolmuş, güncel fiyattan kovalama) girişleri
+                # tutarlı negatifti (-42R/60g, -60R hepsiTP1). Yeni sinyal yazılmaz, izleme
+                # listesinde "fiyat girişi geçti" notuyla gösterilir.
+                k["asama"] = "izleme"
+                k["notlar"].append("giriş zaten geçildi (PİYASA); backtest'te zayıf, kovalanmaz")
             elif gec:
                 # Geç kalmış ama girişi hâlâ geçerli: yeni sinyal yazılmaz, izleme listesinde gösterilir
                 k["asama"] = "izleme"
