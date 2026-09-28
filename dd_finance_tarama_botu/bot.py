@@ -303,7 +303,9 @@ def kirmizi(m):
 
 
 def yuvarla(x, ref=None):
-    """Fiyatı okunur basamakla yuvarlar (JPY / metal / kripto farkı için)."""
+    """Fiyatı okunur basamakla yuvarlar (JPY / metal / kripto farkı için).
+    r < 1 iken (PEPE/SHIB gibi çok küçük fiyatlı kripto çiftleri) sabit 5 basamak
+    fiyatı 0.0'a yuvarlayabiliyordu; bunun yerine ~5 anlamlı basamak korunur."""
     if x is None:
         return None
     r = abs(ref if ref is not None else x)
@@ -313,7 +315,10 @@ def yuvarla(x, ref=None):
         return round(x, 2)
     if r >= 10:
         return round(x, 3)
-    return round(x, 5)
+    if r >= 1 or r == 0:
+        return round(x, 5)
+    basamak = 4 - int(math.floor(math.log10(r)))
+    return round(x, max(5, min(basamak, 15)))
 
 
 def json_oku(yol, varsayilan):
