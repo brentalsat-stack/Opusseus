@@ -4668,6 +4668,7 @@ BACKTEST_TP1_SONRA_GIRISE = True # TP1'de kâr alındıktan sonra stop girişe �
 BACKTEST_ESLESME_HARIC = []      # örn. ["1day→4h"] -- bu eşlemeden gelen kurulumlar emir açmaz (--no-1d4h)
 BACKTEST_GIRIS_TURU_HARIC = []   # örn. ["PİYASA"] -- bu giriş türleri emir açmaz (--no-piyasa)
 BACKTEST_MIN_SKOR = None         # örn. 4 -- bu skorun altındaki kurulumlar emir açmaz (--min-skor=4)
+BACKTEST_TIP_HARIC = []          # örn. ["SFP"] -- bu kurulum tipleri emir açmaz (--no-sfp)
 BACKTEST_KLINE_URL = ["https://data-api.binance.vision/api/v3/klines",
                       "https://api.binance.com/api/v3/klines"]
 BT_ARALIK = {"1day": ("1d", 1440), "4h": ("4h", 240), "1h": ("1h", 60), "15min": ("15m", 15)}
@@ -4840,9 +4841,9 @@ def backtest_calistir(gun=None, sembol_sayisi=None):
     print("GERİYE DÖNÜK TEST | %s -> %s UTC | %d gün | %d sembol | adım %d saat" % (
         zaman_yaz(bas), zaman_yaz(bit), gun, len(semboller), BACKTEST_ADIM_SAAT))
     print("Semboller: " + ", ".join(semboller))
-    if BACKTEST_ESLESME_HARIC or BACKTEST_GIRIS_TURU_HARIC or BACKTEST_MIN_SKOR is not None:
-        print("Filtre: eşleme_haric=%s giris_haric=%s min_skor=%s" %
-              (BACKTEST_ESLESME_HARIC or "-", BACKTEST_GIRIS_TURU_HARIC or "-", BACKTEST_MIN_SKOR))
+    if BACKTEST_ESLESME_HARIC or BACKTEST_GIRIS_TURU_HARIC or BACKTEST_TIP_HARIC or BACKTEST_MIN_SKOR is not None:
+        print("Filtre: eşleme_haric=%s giris_haric=%s tip_haric=%s min_skor=%s" %
+              (BACKTEST_ESLESME_HARIC or "-", BACKTEST_GIRIS_TURU_HARIC or "-", BACKTEST_TIP_HARIC or "-", BACKTEST_MIN_SKOR))
     print("Uyarı: bugünkü hacim listesi geçmişe uygulanır (hayatta kalma yanlılığı olabilir).")
     orijinal_analiz = dilim_analiz
     tum_islemler, kacan = [], []
@@ -4898,6 +4899,7 @@ def backtest_calistir(gun=None, sembol_sayisi=None):
                 else:
                     tur, giris = ("AGRESİF" if agresif else "LİMİT"), k["giris"]
                 if k["eslesme"] in BACKTEST_ESLESME_HARIC or tur in BACKTEST_GIRIS_TURU_HARIC or \
+                        k["tip"] in BACKTEST_TIP_HARIC or \
                         (BACKTEST_MIN_SKOR is not None and k["skor"] < BACKTEST_MIN_SKOR):
                     continue
                 islem = {"sembol": sembol, "eslesme": k["eslesme"], "tip": k["tip"], "yon": k["yon"],
@@ -4952,9 +4954,9 @@ def bt_rapor_yaz(dizin, islemler, kacan, bas, bit, semboller):
              BACKTEST_ADIM_SAAT, BACKTEST_LIMIT_MAX_SAAT, "girişe" if BACKTEST_TP1_SONRA_GIRISE else "sabit"),
          "Giriş türleri: AGRESİF = SFP_AGRESIF limit | LİMİT = dolmamış girişe limit | PİYASA = dolmuş ama geçerli, güncel fiyattan",
          "Not: geçmiş sonuç geleceği garanti etmez; komisyon/kayma dahil değildir."]
-    if BACKTEST_ESLESME_HARIC or BACKTEST_GIRIS_TURU_HARIC or BACKTEST_MIN_SKOR is not None:
-        s.append("Filtre: eşleme_haric=%s giris_haric=%s min_skor=%s" %
-                 (BACKTEST_ESLESME_HARIC or "-", BACKTEST_GIRIS_TURU_HARIC or "-", BACKTEST_MIN_SKOR))
+    if BACKTEST_ESLESME_HARIC or BACKTEST_GIRIS_TURU_HARIC or BACKTEST_TIP_HARIC or BACKTEST_MIN_SKOR is not None:
+        s.append("Filtre: eşleme_haric=%s giris_haric=%s tip_haric=%s min_skor=%s" %
+                 (BACKTEST_ESLESME_HARIC or "-", BACKTEST_GIRIS_TURU_HARIC or "-", BACKTEST_TIP_HARIC or "-", BACKTEST_MIN_SKOR))
     s.append("")
 
     def satir(ad, o):
@@ -5010,6 +5012,8 @@ if __name__ == "__main__":
             BACKTEST_GIRIS_TURU_HARIC.append("PİYASA")
         if "--no-agresif" in argumanlar:
             BACKTEST_GIRIS_TURU_HARIC.append("AGRESİF")
+        if "--no-sfp" in argumanlar:
+            BACKTEST_TIP_HARIC.append("SFP")
         for a in argumanlar:
             if a.startswith("--min-skor="):
                 BACKTEST_MIN_SKOR = int(a.split("=")[1])
