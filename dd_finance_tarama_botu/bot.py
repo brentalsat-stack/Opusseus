@@ -4871,11 +4871,18 @@ def backtest_calistir(gun=None, sembol_sayisi=None):
     else:
         eslesmeler = [e for e in eslesmeleri_coz() if "15min" not in e]
     ekstra_dilimler = sorted({d for cift in eslesmeler for d in cift} - {"1day", "4h", "1h"})
+    # Emir simülasyonu (dolum/stop/TP takibi), sinyalin kendi onay diliminden DAHA KABA
+    # (daha büyük mumlu) veriyle yapılırsa yanlış olur: 15min'de doğan bir sinyal 1h mumla
+    # simüle edilirse aynı saat içindeki stop/TP sırası kaybolur. Bu yüzden tüm eşlemelerin
+    # onay dilimlerinin EN İNCESİ (en küçük DILIM_DAKIKA) kullanılır -- varsayılan 4h→1h'de
+    # bu zaten "1h" olduğundan davranış değişmez.
+    islem_dilim = min({onay for _, onay in eslesmeler}, key=lambda d: DILIM_DAKIKA[d])
     print("=" * 60)
     print("GERİYE DÖNÜK TEST | %s -> %s UTC | %d gün | %d sembol | adım %d saat" % (
         zaman_yaz(bas), zaman_yaz(bit), gun, len(semboller), BACKTEST_ADIM_SAAT))
     print("Semboller: " + ", ".join(semboller))
     print("Eşleme(ler): " + ", ".join("%s→%s" % c for c in eslesmeler))
+    print("Emir simülasyonu mum dilimi: %s" % islem_dilim)
     if BACKTEST_ESLESME_HARIC or BACKTEST_GIRIS_TURU_HARIC or BACKTEST_TIP_HARIC or BACKTEST_MIN_SKOR is not None:
         print("Filtre: eşleme_haric=%s giris_haric=%s tip_haric=%s min_skor=%s" %
               (BACKTEST_ESLESME_HARIC or "-", BACKTEST_GIRIS_TURU_HARIC or "-", BACKTEST_TIP_HARIC or "-", BACKTEST_MIN_SKOR))
@@ -4899,7 +4906,7 @@ def backtest_calistir(gun=None, sembol_sayisi=None):
                 onbellek[anahtar] = orijinal_analiz(mumlar, dilim, ob_mod, breaker_mod)
             return onbellek[anahtar]
         dilim_analiz = analiz_onbellekli
-        m1h = veri["1h"]
+        m1h = veri[islem_dilim]
         dts1h = [m["dt"] for m in m1h]
         gorulen = {}
         t = bas
