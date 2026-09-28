@@ -4687,6 +4687,7 @@ BACKTEST_TP1_SONRA_GIRISE = True # TP1'de kâr alındıktan sonra stop girişe �
 BACKTEST_ESLESME_HARIC = []      # örn. ["1day→4h"] -- bu eşlemeden gelen kurulumlar emir açmaz (--no-1d4h)
 BACKTEST_GIRIS_TURU_HARIC = []   # örn. ["PİYASA"] -- bu giriş türleri emir açmaz (--no-piyasa)
 BACKTEST_MIN_SKOR = None         # örn. 4 -- bu skorun altındaki kurulumlar emir açmaz (--min-skor=4)
+BACKTEST_MIN_RR = None           # örn. 2.5 -- TP1 R/R'si bu değerin altındaki kurulumlar emir açmaz (--min-rr=2.5)
 BACKTEST_TIP_HARIC = []          # örn. ["SFP"] -- bu kurulum tipleri emir açmaz (--no-sfp)
 # örn. [("1h","15min")] -- AKTIF_ESLEMELER'i (canlı taramadaki 4h→1h) YOK SAYAR, sadece bu
 # eşlemeyi test eder (--eslesme=1h-15min). None ise normal davranış (AKTIF_ESLEMELER kullanılır).
@@ -4883,9 +4884,9 @@ def backtest_calistir(gun=None, sembol_sayisi=None):
     print("Semboller: " + ", ".join(semboller))
     print("Eşleme(ler): " + ", ".join("%s→%s" % c for c in eslesmeler))
     print("Emir simülasyonu mum dilimi: %s" % islem_dilim)
-    if BACKTEST_ESLESME_HARIC or BACKTEST_GIRIS_TURU_HARIC or BACKTEST_TIP_HARIC or BACKTEST_MIN_SKOR is not None:
-        print("Filtre: eşleme_haric=%s giris_haric=%s tip_haric=%s min_skor=%s" %
-              (BACKTEST_ESLESME_HARIC or "-", BACKTEST_GIRIS_TURU_HARIC or "-", BACKTEST_TIP_HARIC or "-", BACKTEST_MIN_SKOR))
+    if BACKTEST_ESLESME_HARIC or BACKTEST_GIRIS_TURU_HARIC or BACKTEST_TIP_HARIC or BACKTEST_MIN_SKOR is not None or BACKTEST_MIN_RR is not None:
+        print("Filtre: eşleme_haric=%s giris_haric=%s tip_haric=%s min_skor=%s min_rr=%s" %
+              (BACKTEST_ESLESME_HARIC or "-", BACKTEST_GIRIS_TURU_HARIC or "-", BACKTEST_TIP_HARIC or "-", BACKTEST_MIN_SKOR, BACKTEST_MIN_RR))
     print("Uyarı: bugünkü hacim listesi geçmişe uygulanır (hayatta kalma yanlılığı olabilir).")
     orijinal_analiz = dilim_analiz
     tum_islemler, kacan = [], []
@@ -4942,7 +4943,8 @@ def backtest_calistir(gun=None, sembol_sayisi=None):
                     tur, giris = ("AGRESİF" if agresif else "LİMİT"), k["giris"]
                 if k["eslesme"] in BACKTEST_ESLESME_HARIC or tur in BACKTEST_GIRIS_TURU_HARIC or \
                         k["tip"] in BACKTEST_TIP_HARIC or \
-                        (BACKTEST_MIN_SKOR is not None and k["skor"] < BACKTEST_MIN_SKOR):
+                        (BACKTEST_MIN_SKOR is not None and k["skor"] < BACKTEST_MIN_SKOR) or \
+                        (BACKTEST_MIN_RR is not None and (not k.get("rr") or k["rr"][0] < BACKTEST_MIN_RR)):
                     continue
                 islem = {"sembol": sembol, "eslesme": k["eslesme"], "tip": k["tip"], "yon": k["yon"],
                          "giris_turu": tur, "sinyal_zamani": zaman_yaz(t), "tetik": k.get("zaman", ""),
@@ -4996,9 +4998,9 @@ def bt_rapor_yaz(dizin, islemler, kacan, bas, bit, semboller):
              BACKTEST_ADIM_SAAT, BACKTEST_LIMIT_MAX_SAAT, "girişe" if BACKTEST_TP1_SONRA_GIRISE else "sabit"),
          "Giriş türleri: AGRESİF = SFP_AGRESIF limit | LİMİT = dolmamış girişe limit | PİYASA = dolmuş ama geçerli, güncel fiyattan",
          "Not: geçmiş sonuç geleceği garanti etmez; komisyon/kayma dahil değildir."]
-    if BACKTEST_ESLESME_HARIC or BACKTEST_GIRIS_TURU_HARIC or BACKTEST_TIP_HARIC or BACKTEST_MIN_SKOR is not None:
-        s.append("Filtre: eşleme_haric=%s giris_haric=%s tip_haric=%s min_skor=%s" %
-                 (BACKTEST_ESLESME_HARIC or "-", BACKTEST_GIRIS_TURU_HARIC or "-", BACKTEST_TIP_HARIC or "-", BACKTEST_MIN_SKOR))
+    if BACKTEST_ESLESME_HARIC or BACKTEST_GIRIS_TURU_HARIC or BACKTEST_TIP_HARIC or BACKTEST_MIN_SKOR is not None or BACKTEST_MIN_RR is not None:
+        s.append("Filtre: eşleme_haric=%s giris_haric=%s tip_haric=%s min_skor=%s min_rr=%s" %
+                 (BACKTEST_ESLESME_HARIC or "-", BACKTEST_GIRIS_TURU_HARIC or "-", BACKTEST_TIP_HARIC or "-", BACKTEST_MIN_SKOR, BACKTEST_MIN_RR))
     s.append("")
 
     def satir(ad, o):
@@ -5056,9 +5058,17 @@ if __name__ == "__main__":
             BACKTEST_GIRIS_TURU_HARIC.append("AGRESİF")
         if "--no-sfp" in argumanlar:
             BACKTEST_TIP_HARIC.append("SFP")
+        if "--no-mitigation" in argumanlar:
+            BACKTEST_TIP_HARIC.append("MITIGATION")
+        if "--no-breaker" in argumanlar:
+            BACKTEST_TIP_HARIC.append("BREAKER")
+        if "--no-poi" in argumanlar:
+            BACKTEST_TIP_HARIC.append("POI")
         for a in argumanlar:
             if a.startswith("--min-skor="):
                 BACKTEST_MIN_SKOR = int(a.split("=")[1])
+            elif a.startswith("--min-rr="):
+                BACKTEST_MIN_RR = float(a.split("=")[1])
             elif a.startswith("--eslesme="):
                 # ör. --eslesme=1h-15min -> [("1h","15min")]; AKTIF_ESLEMELER'i (4h→1h) yok sayar
                 parca = a.split("=", 1)[1].split("-")
