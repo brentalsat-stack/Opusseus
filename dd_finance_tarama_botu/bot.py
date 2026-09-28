@@ -4688,6 +4688,9 @@ BACKTEST_ESLESME_HARIC = []      # örn. ["1day→4h"] -- bu eşlemeden gelen ku
 BACKTEST_GIRIS_TURU_HARIC = []   # örn. ["PİYASA"] -- bu giriş türleri emir açmaz (--no-piyasa)
 BACKTEST_MIN_SKOR = None         # örn. 4 -- bu skorun altındaki kurulumlar emir açmaz (--min-skor=4)
 BACKTEST_TIP_HARIC = []          # örn. ["SFP"] -- bu kurulum tipleri emir açmaz (--no-sfp)
+# örn. [("1h","15min")] -- AKTIF_ESLEMELER'i (canlı taramadaki 4h→1h) YOK SAYAR, sadece bu
+# eşlemeyi test eder (--eslesme=1h-15min). None ise normal davranış (AKTIF_ESLEMELER kullanılır).
+BACKTEST_ESLESME_OVERRIDE = None
 BACKTEST_KLINE_URL = ["https://data-api.binance.vision/api/v3/klines",
                       "https://api.binance.com/api/v3/klines"]
 BT_ARALIK = {"1day": ("1d", 1440), "4h": ("4h", 240), "1h": ("1h", 60), "15min": ("15m", 15)}
@@ -4722,17 +4725,25 @@ def bt_kline_cek(sembol, aralik, bas, bit):
     return sonuc
 
 
-def bt_veri_hazirla(sembol, bas, bit, dizin):
-    """Isınma + test dönemi verisi (önbellekli)."""
+BT_GUNLUK_BAR = {"1day": 1, "4h": 6, "1h": 24, "15min": 96}   # ısınma günü hesabı için
+
+
+def bt_veri_hazirla(sembol, bas, bit, dizin, ekstra_dilimler=None):
+    """Isınma + test dönemi verisi (önbellekli). ekstra_dilimler: 1day/4h/1h dışında
+    (ör. '15min') çekilmesi gereken dilimler (örn. '1h→15min' eşlemesini test etmek için).
+    Önbellek dosya adı ekstra dilime göre değişmez; bu yüzden ekstra dilimli bir test için
+    ayrı bir veri klasörü kullanılması (aynı önceki eski önbellekle karışmaması için) önerilir."""
     yol = os.path.join(dizin, "%s_%s_%s.json" % (sembol.replace("/", ""), bas.strftime("%Y%m%d%H"), bit.strftime("%Y%m%d%H")))
+    gerekli = ["1day", "4h", "1h"] + [d for d in (ekstra_dilimler or []) if d not in ("1day", "4h", "1h")]
     kayit = json_oku(yol, None)
-    if isinstance(kayit, dict) and kayit.get("1h"):
+    if isinstance(kayit, dict) and kayit.get("1h") and all(kayit.get(d) for d in gerekli):
         for d in kayit:
             for m in kayit[d]:
                 m["dt"] = zaman_coz(m["zaman"])
         return kayit
     veri = {}
-    for d, isinma_gun in (("1day", MUM_SAYISI["1day"] + 5), ("4h", MUM_SAYISI["4h"] // 6 + 3), ("1h", MUM_SAYISI["1h"] // 24 + 2)):
+    for d in gerekli:
+        isinma_gun = MUM_SAYISI[d] // BT_GUNLUK_BAR[d] + 2
         veri[d] = bt_kline_cek(sembol, d, bas - datetime.timedelta(days=isinma_gun), bit)
         if not veri[d]:
             return None
@@ -4855,11 +4866,16 @@ def backtest_calistir(gun=None, sembol_sayisi=None):
         td = twelvedata_kripto_seti()
         semboller = [b + "/USD" for b, _ in (sira or []) if td is None or (b + "/USD") in td][:sembol_sayisi]
         semboller = semboller or KRIPTO_SABIT[:sembol_sayisi]
-    eslesmeler = [e for e in eslesmeleri_coz() if "15min" not in e]
+    if BACKTEST_ESLESME_OVERRIDE:
+        eslesmeler = list(BACKTEST_ESLESME_OVERRIDE)
+    else:
+        eslesmeler = [e for e in eslesmeleri_coz() if "15min" not in e]
+    ekstra_dilimler = sorted({d for cift in eslesmeler for d in cift} - {"1day", "4h", "1h"})
     print("=" * 60)
     print("GERİYE DÖNÜK TEST | %s -> %s UTC | %d gün | %d sembol | adım %d saat" % (
         zaman_yaz(bas), zaman_yaz(bit), gun, len(semboller), BACKTEST_ADIM_SAAT))
     print("Semboller: " + ", ".join(semboller))
+    print("Eşleme(ler): " + ", ".join("%s→%s" % c for c in eslesmeler))
     if BACKTEST_ESLESME_HARIC or BACKTEST_GIRIS_TURU_HARIC or BACKTEST_TIP_HARIC or BACKTEST_MIN_SKOR is not None:
         print("Filtre: eşleme_haric=%s giris_haric=%s tip_haric=%s min_skor=%s" %
               (BACKTEST_ESLESME_HARIC or "-", BACKTEST_GIRIS_TURU_HARIC or "-", BACKTEST_TIP_HARIC or "-", BACKTEST_MIN_SKOR))
@@ -4869,7 +4885,7 @@ def backtest_calistir(gun=None, sembol_sayisi=None):
     baslangic = time.time()
     for sn, sembol in enumerate(semboller, 1):
         print("[%d/%d] %s verisi çekiliyor..." % (sn, len(semboller), sembol))
-        veri = bt_veri_hazirla(sembol, bas, bit, veri_dizin)
+        veri = bt_veri_hazirla(sembol, bas, bit, veri_dizin, ekstra_dilimler)
         if not veri:
             print("  veri alınamadı, atlandı")
             continue
@@ -5036,6 +5052,13 @@ if __name__ == "__main__":
         for a in argumanlar:
             if a.startswith("--min-skor="):
                 BACKTEST_MIN_SKOR = int(a.split("=")[1])
+            elif a.startswith("--eslesme="):
+                # ör. --eslesme=1h-15min -> [("1h","15min")]; AKTIF_ESLEMELER'i (4h→1h) yok sayar
+                parca = a.split("=", 1)[1].split("-")
+                if len(parca) == 2:
+                    BACKTEST_ESLESME_OVERRIDE = [(parca[0], parca[1])]
+                else:
+                    uyari("--eslesme=%s çözümlenemedi (biçim: POI_DILIMI-ONAY_DILIMI)" % a.split("=", 1)[1])
         backtest_calistir(sayilar[0] if sayilar else None, sayilar[1] if len(sayilar) > 1 else None)
     elif "--demo" in argumanlar:
         yollari_ayarla(os.path.join(TEMEL_DIZIN, "demo"))
