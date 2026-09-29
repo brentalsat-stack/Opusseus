@@ -3810,13 +3810,32 @@ YONETIM_NOTU = ("Yönetim: Stop'u erken girişe çekme. Stop, yapıyı bozacak s
                 "sonra stop giriş seviyesine çekilebilir (DD PO3 notu).")
 
 
+def _pine_basamak(ref):
+    """yuvarla()'nın ref'e göre kullandığı ondalık basamak sayısının aynısı (p02_veri.yuvarla ile senkron)."""
+    r = abs(ref) if ref is not None else 0
+    if r >= 1000:
+        return 1
+    if r >= 100:
+        return 2
+    if r >= 10:
+        return 3
+    if r >= 1 or r == 0:
+        return 5
+    basamak = 4 - int(math.floor(math.log10(r)))
+    return max(5, min(basamak, 15))
+
+
 def _pine_sayi(x, ref):
     """Pine Script str.tonumber() bilimsel gösterimi (1e-06) güvenilir ayrıştırmayabilir;
-    bu yüzden yuvarla()'nın sonucu HER ZAMAN sabit ondalıklı (%f) yazılır, asla e-gösterimi değil."""
+    bu yüzden yuvarla()'nın sonucu HER ZAMAN sabit ondalıklı (%f) yazılır, asla e-gösterimi değil.
+    Basamak sayısı yuvarla() ile AYNI (ör. 5) kullanılır; 15 basamağa sabit yazmak ikili float
+    yaklaşıklığını (2676.1 -> 2676.099999999999909) ortaya çıkarıp TP/SL alanlarının Pine'da
+    str.tonumber() ile hatalı/na parse edilmesine yol açıyordu."""
     if x is None:
         return ""
     v = yuvarla(x, ref)
-    s = ("%.15f" % v).rstrip("0").rstrip(".")
+    basamak = _pine_basamak(ref)
+    s = ("%.*f" % (basamak, v)).rstrip("0").rstrip(".")
     return s if s not in ("", "-") else "0"
 
 
