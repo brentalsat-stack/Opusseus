@@ -3810,6 +3810,34 @@ YONETIM_NOTU = ("Yönetim: Stop'u erken girişe çekme. Stop, yapıyı bozacak s
                 "sonra stop giriş seviyesine çekilebilir (DD PO3 notu).")
 
 
+def _pine_sayi(x, ref):
+    """Pine Script str.tonumber() bilimsel gösterimi (1e-06) güvenilir ayrıştırmayabilir;
+    bu yüzden yuvarla()'nın sonucu HER ZAMAN sabit ondalıklı (%f) yazılır, asla e-gösterimi değil."""
+    if x is None:
+        return ""
+    v = yuvarla(x, ref)
+    s = ("%.15f" % v).rstrip("0").rstrip(".")
+    return s if s not in ("", "-") else "0"
+
+
+def pine_satiri(k):
+    """Görselleştirici indikatörün beklediği 'ETIKET,YON,ALT,UST,SL,TP1,TP2' satırı.
+    Giriş bölgesi henüz yoksa (POI aşaması) POI sınırları kullanılır. Hiçbir bölge yoksa None döner."""
+    alt, ust = k.get("giris_alt"), k.get("giris_ust")
+    if alt is None or ust is None:
+        if k.get("poi"):
+            alt, ust = k["poi"]
+        else:
+            return None
+    ref = k.get("giris") if k.get("giris") is not None else alt
+    etiket = ("%s %s %s" % (k["sembol"], k["yon"], k["tip"])).replace(",", " ")
+    tp_liste = k.get("tps") or []
+    tp1 = tp_liste[0][0] if len(tp_liste) >= 1 else None
+    tp2 = tp_liste[1][0] if len(tp_liste) >= 2 else None
+    return ",".join([etiket, k["yon"], _pine_sayi(alt, ref), _pine_sayi(ust, ref),
+                     _pine_sayi(k.get("stop"), ref), _pine_sayi(tp1, ref), _pine_sayi(tp2, ref)])
+
+
 def kurulum_detay(k):
     ref = k["giris"]
     satirlar = [ekran_satiri(k)]
@@ -3946,6 +3974,15 @@ def rapor_yaz(simdi, bilgi, sinyaller, kurulumlar, ozetler, oto_ayarlar, yonetic
     s.append("")
     s.append("9) UYGULANAN OTOMATİK İSTATİSTİK AYARLARI")
     s += ["  " + x for x in oto_ayarlar] if oto_ayarlar else ["  - (OTOMATIK_MOD_SECIMI kapalı veya yeterli örnek yok)"]
+    s.append("")
+    s.append("10) PINE SCRIPT İÇİN HAZIR SATIRLAR (kopyala, görselleştiricinin 'Kurulumlar' kutusuna yapıştır)")
+    pine_liste = list(sinyaller) + [k for k in kurulumlar if k["asama"] in ("onay_bekliyor", "retest_bekliyor")]
+    pine_satirlari = [p for p in (pine_satiri(k) for k in pine_liste) if p]
+    if pine_satirlari:
+        s.append("# ETIKET,YON,ALT,UST,SL,TP1,TP2")
+        s += pine_satirlari
+    else:
+        s.append("  -")
     with open(yol, "w", encoding="utf-8") as f:
         f.write("\n".join(s) + "\n")
     return yol
