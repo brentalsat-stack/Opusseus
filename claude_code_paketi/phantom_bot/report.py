@@ -15,7 +15,7 @@ CSV_COLUMNS = [
     "status", "entry_type", "entry", "stop", "stop_pips_or_pct", "tp1", "tp2",
     "rr_tp1", "rr_tp2", "score", "grade", "premium_discount", "sweep", "fvg",
     "inducement", "session_tag", "warnings", "last_price", "poi_rank", "ltf_tf",
-    "entry_restriction",
+    "entry_restriction", "distance_pct",
 ]
 
 
@@ -81,6 +81,15 @@ def _format_price(value, market, symbol):
     return round(number, decimals)
 
 
+def _distance_pct(item):
+    """|entry − last_price| / last_price × 100, or None when either is missing."""
+    try:
+        entry, last = float(item.get("entry")), float(item.get("last_price"))
+    except (TypeError, ValueError):
+        return None
+    return round(abs(entry - last) / last * 100.0, 2) if last else None
+
+
 def _has_no_target(item):
     if item.get("tp2") is None:
         return True
@@ -127,6 +136,7 @@ def _limit_candidates(results, meta):
                                     str(item.get("poi_tf", ""))))
         for rank, item in enumerate(rows[:int(config.MAX_POI_PER_SYMBOL_DIR)], 1):
             item["poi_rank"] = rank
+            item["distance_pct"] = _distance_pct(item)  # raw values, before price rounding
             item["grade"] = _grade(item) if _score(item) >= minimum else "-"
             symbol = item.get("symbol", "")
             market = item.get("market", "forex" if "/" in str(symbol) or "XAU" in str(symbol).upper() else "crypto")
@@ -148,16 +158,16 @@ def _md(value):
 
 
 def _candidate_table(items):
-    lines = ["| Sembol | Yön | Rank | Puan | Not | Durum | Giriş | Stop | TP2 | R:R TP2 |",
-             "|---|---|---:|---:|:---:|---|---:|---:|---:|---:|"]
+    lines = ["| Sembol | Yön | Rank | Puan | Not | Durum | Giriş | Stop | TP2 | R:R TP2 | Son fiyat | Mesafe % |",
+             "|---|---|---:|---:|:---:|---|---:|---:|---:|---:|---:|---:|"]
     for item in items:
-        lines.append("| {} | {} | {} | {} | {} | {} | {} | {} | {} | {} |".format(
+        lines.append("| {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} |".format(
             _md(item.get("symbol")), _md(item.get("direction")), _md(item.get("poi_rank")),
             _md(item.get("score")), _md(_grade(item)), _md(item.get("status")),
             _md(item.get("entry")), _md(item.get("stop")), _md(item.get("tp2")),
-            _md(item.get("rr_tp2"))))
+            _md(item.get("rr_tp2")), _md(item.get("last_price")), _md(item.get("distance_pct"))))
     if not items:
-        lines.append("| — | — | — | — | — | Bu bölümde setup yok | — | — | — | — |")
+        lines.append("| — | — | — | — | — | Bu bölümde setup yok | — | — | — | — | — | — |")
     return lines
 
 
