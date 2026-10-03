@@ -44,16 +44,25 @@ def _request_json(path, params=None):
     raise BinanceAPIError("Binance public API isteği başarısız: " + "; ".join(errors))
 
 
-def _excluded_symbol(symbol):
-    """USDT spot evreninden stablecoin ve kaldıraçlı tokenları eler."""
-    if not symbol.endswith(config.BINANCE_QUOTE_ASSET):
+def _excluded_symbol(symbol, listed_symbols=None):
+    """USDT spot evreninden stablecoin, kaldıraçlı token ve EXCLUDED_SYMBOLS'ı eler.
+
+    Kaldıraçlı token yalnız SONEKLE tanınır (BTCUPUSDT → base BTCUP). "UP" ile biten
+    gerçek coinler (JUP, SYRUP) korunur: base'den sonek çıkarılınca kalan varlığın da
+    USDT paritesi listede olmalıdır (BTCUP → BTCUSDT var; JUP → JUSDT yok). SUPER gibi
+    ortasında UP geçenler hiç etkilenmez.
+    """
+    if not symbol.endswith(config.BINANCE_QUOTE_ASSET) or symbol in config.EXCLUDED_SYMBOLS:
         return True
     base = symbol[:-len(config.BINANCE_QUOTE_ASSET)]
-    # USD1 ve RLUSD, ilk config listesi yazıldıktan sonra listelenen stablecoinlerdir.
-    stable_bases = set(config.BINANCE_EXCLUDED_BASES) | {"USD1", "RLUSD"}
-    if base in stable_bases:
+    if base in set(config.BINANCE_EXCLUDED_BASES):
         return True
-    return any(marker in base for marker in config.BINANCE_LEVERAGED_MARKERS)
+    for marker in config.BINANCE_LEVERAGED_MARKERS:
+        if base.endswith(marker) and len(base) > len(marker):
+            underlying = base[:-len(marker)] + config.BINANCE_QUOTE_ASSET
+            if listed_symbols is None or underlying in listed_symbols:
+                return True
+    return False
 
 
 def get_top_symbols(n=None):
@@ -71,11 +80,12 @@ def get_top_symbols(n=None):
     if not isinstance(payload, list):
         raise BinanceAPIError("24 saatlik ticker yanıtı liste biçiminde değil")
     rows = []
+    listed = {str(item.get("symbol", "")) for item in payload if isinstance(item, dict)}
     for item in payload:
         if not isinstance(item, dict):
             continue
         symbol = str(item.get("symbol", ""))
-        if _excluded_symbol(symbol):
+        if _excluded_symbol(symbol, listed):
             continue
         try:
             volume = float(item["quoteVolume"])
