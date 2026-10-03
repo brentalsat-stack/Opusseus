@@ -1,0 +1,3 @@
+"""Yerel ayarlar örneği. Bu dosyayı config_local.py adıyla kopyalayın ve gerçek anahtarı yazın.
+config_local.py git'e eklenmez ve kimseyle paylaşılmaz."""
+TWELVEDATA_API_KEY = "GERCEK_ANAHTARINIZ"
