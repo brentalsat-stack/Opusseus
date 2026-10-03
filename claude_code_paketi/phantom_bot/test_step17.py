@@ -14,6 +14,10 @@ def test_irl_helper():
     assert phantom_scan._irl_levels(candles, {"range_low": None, "range_high": None}) == []
     # Aralığın dışındaki seviye IRL değildir.
     assert phantom_scan._irl_levels(candles, {"range_low": 9.0, "range_high": 14.0}) == []
+    # Sonradan geçilmiş swing IRL olarak kalır (TP1 adayı), inducement için ise elenir.
+    traded = candles + [candle(12, 16, 11, 15.5, 7), candle(15, 15.5, 14, 14.5, 8)]
+    assert any(abs(level["price"] - 15.0) < 1e-9 for level in phantom_scan._irl_levels(traded, structure))
+    assert not any(abs(level["price"] - 15.0) < 1e-9 for level in phantom_scan._liquidity_levels(traded))
     print("IRL yardımcısı (aralık içi, süpürülmemiş swing): GEÇTİ")
 
 
