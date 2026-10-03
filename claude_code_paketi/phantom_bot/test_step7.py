@@ -28,10 +28,20 @@ def main():
     print("Sweep tespiti: GEÇTİ —", sweeps[0])
 
     poi = {"direction": "BULLISH", "low": 9.0, "high": 10.0}
-    levels = [{"type": "EQL", "price": 8.5}, {"type": "EQL", "price": 7.5},
-              {"type": "EQH", "price": 10.5}]
-    inducement = liquidity.find_inducement(poi, "BULLISH", levels, current_price=8.0)
-    assert inducement is not None and inducement["price"] == 8.5
+    levels = [{"type": "EQL", "price": 8.5},    # POI'nin altında: inducement değil
+              {"type": "EQL", "price": 11.5},   # POI ile fiyat arasında: geçerli
+              {"type": "low", "price": 12.5},   # daha uzak swing low
+              {"type": "EQL", "price": 15.0},   # fiyatın üstünde: geçerli değil
+              {"type": "EQH", "price": 11.0}]   # yanlış tür
+    inducement = liquidity.find_inducement(poi, "BULLISH", levels, current_price=14.0)
+    assert inducement is not None and inducement["price"] == 11.5
+    assert liquidity.find_inducement(poi, "BULLISH", [{"type": "EQL", "price": 8.5}], current_price=14.0) is None
+    bear = {"direction": "BEARISH", "low": 20.0, "high": 21.0}
+    bear_levels = [{"type": "EQH", "price": 21.5}, {"type": "EQH", "price": 17.0},
+                   {"type": "high", "price": 18.5}, {"type": "EQH", "price": 14.0}]
+    bearish = liquidity.find_inducement(bear, "BEARISH", bear_levels, current_price=15.0)
+    assert bearish is not None and bearish["price"] == 18.5
+    inducement = inducement
     print("Inducement tespiti: GEÇTİ —", inducement)
     print("test_step7: OK")
 
