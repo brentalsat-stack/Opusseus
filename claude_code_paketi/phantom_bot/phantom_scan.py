@@ -208,6 +208,30 @@ def _active_obs(symbol, obs, candles):
     return active
 
 
+def _refine_poi(ob, htf_candles, m15_candles, m15_obs):
+    """Narrow a 4h/1h POI to the 15m OB formed inside its own candle (risk entry zone).
+
+    The 15m OB must be same-direction, still FRESH/TAPPED, lie fully inside the
+    HTF zone and start within the HTF OB candle's time span; the latest such
+    block wins. Returns zone fields for signals.levels or None (use HTF zone).
+    """
+    index = ob.get("index")
+    seconds = TIMEFRAME_SECONDS.get(ob.get("timeframe"))
+    if not isinstance(index, int) or not seconds or not 0 <= index < len(htf_candles):
+        return None
+    start = int(htf_candles[index]["t"])
+    zone_low, zone_high = float(ob["low"]), float(ob["high"])
+    tolerance = (zone_high - zone_low) * 1e-9
+    fits = [candidate for candidate in m15_obs
+            if candidate["direction"] == ob["direction"]
+            and start <= int(m15_candles[candidate["index"]]["t"]) < start + seconds
+            and candidate["low"] >= zone_low - tolerance and candidate["high"] <= zone_high + tolerance]
+    if not fits:
+        return None
+    best = max(fits, key=lambda candidate: candidate["index"])
+    return {key: best[key] for key in ("high", "low", "proximal", "distal", "eq")}
+
+
 def _liquidity_levels(candles, unswept_only=True):
     """Swing highs/lows plus EQH/EQL groups, each flagged ``swept``.
 
@@ -301,6 +325,8 @@ def _score_candidate(ob, bias_d1, bias_h4, stack_count, status_data,
     score = scoring.score_setup(setup_for_score)
     restriction = ",".join(session_info["entry_restrictions"])
     entry_type = "confirmation" if restriction else "risk"
+    if price_levels is not None:
+        entry_type = price_levels.get("entry_type", entry_type)
     if price_levels is None:
         price_levels = signals.levels(
             ob, direction=direction, market=market, symbol=ob.get("symbol"),
@@ -393,6 +419,16 @@ def _scan_symbol(symbol, market, no_cache, progress):
                                     structure_h4["price_position_pct"] < 50 else "Premium" if
                                     structure_h4.get("price_position_pct") is not None else "UNDEFINED")}
     irl_levels = _irl_levels(h4, structure_h4)
+    m15_cache = {}
+
+    def refined_15m_obs():
+        # 15m structure is only needed when a POI survives the filters.
+        if "obs" not in m15_cache:
+            structure_m15 = structure.analyze_structure(m15)
+            m15_cache["obs"] = _active_obs(
+                symbol, orderblocks.find_order_blocks(m15, structure_m15, "15m"), m15)
+        return m15_cache["obs"]
+
     candidates = []
     seen_poi_keys = set()
     for ob in stacked_pois:
@@ -418,8 +454,10 @@ def _scan_symbol(symbol, market, no_cache, progress):
             continue
 
         session_entry_type = "confirmation" if entry_restrictions else "risk"
+        refined = _refine_poi(ob, poi_candles, m15, refined_15m_obs())
+        levels_poi = dict(ob, **refined) if refined else ob
         price_levels = signals.levels(
-            ob, direction=ob.get("direction"), market=market, symbol=symbol,
+            levels_poi, direction=ob.get("direction"), market=market, symbol=symbol,
             spread_pips=config.FOREX_SPREAD_PIPS.get(symbol, config.FOREX_SPREAD_PIPS["DEFAULT"]),
             atr_value=indicators.atr(poi_candles, config.ATR_PERIOD),
             current_price=current_price, entry_type=session_entry_type,
@@ -444,6 +482,16 @@ def _scan_symbol(symbol, market, no_cache, progress):
             utils.log_file_only("{} {} {} INVALIDATED".format(
                 symbol, ob.get("timeframe", "POI"), ob.get("direction", "")))
             continue
+        if status_data.get("ltf_ob"):
+            # ENTRY1/2_READY: the entry comes from the new LTF OB, not the HTF zone.
+            price_levels = signals.levels(
+                ob, direction=ob.get("direction"), market=market, symbol=symbol,
+                spread_pips=config.FOREX_SPREAD_PIPS.get(symbol, config.FOREX_SPREAD_PIPS["DEFAULT"]),
+                atr_value=indicators.atr(poi_candles, config.ATR_PERIOD),
+                current_price=current_price,
+                entry_type="double_confirmation" if status_data["status"] == "ENTRY2_READY" else "confirmation",
+                irl_levels=irl_levels, pd_levels=pd, pw_levels=pw,
+                targeted_level=active_context.get("targeted"), ltf_ob=status_data["ltf_ob"])
         candidate = _score_candidate(ob, bias_d1, bias_h4, ob.get("stack_count", 1),
                                      status_data, poi_candles,
                                      structure_result, current_price, market, session_info, pd, pw,
@@ -451,7 +499,8 @@ def _scan_symbol(symbol, market, no_cache, progress):
                                      active_context, location, price_levels,
                                      own_structure={"1day": structure_d1, "4h": structure_h4,
                                                     "1h": structure_h1}.get(ob.get("timeframe")))
-        candidate.update({"protected": active_context.get("protected"),
+        candidate.update({"refined_15m": bool(refined), "ltf_ob": status_data.get("ltf_ob"),
+                          "protected": active_context.get("protected"),
                           "targeted": active_context.get("targeted"),
                           "range_low": active_context.get("range_low"),
                           "range_high": active_context.get("range_high")})

@@ -19,6 +19,25 @@ def _body_breaks_level(candle, direction, level):
     return close > level if direction == "BULLISH" else close < level
 
 
+def _origin_ob_index(candles, direction, segment_start, bos_index, opposing):
+    """Opposing candle at the origin (extreme) of the leg that produced the BOS."""
+    leg = range(segment_start, bos_index)
+    if direction == "BULLISH":
+        origin = min(leg, key=lambda i: (_get(candles[i], "l", "low"), i))
+    else:
+        origin = max(leg, key=lambda i: (_get(candles[i], "h", "high"), -i))
+    before = [i for i in opposing if i <= origin]
+    return before[-1] if before else opposing[0]
+
+
+def _zone(candles, index, direction):
+    candle = candles[index]
+    high, low = _get(candle, "h", "high"), _get(candle, "l", "low")
+    return {"index": index, "t": candle.get("t"), "high": high, "low": low,
+            "proximal": high if direction == "BULLISH" else low,
+            "distal": low if direction == "BULLISH" else high, "eq": (high + low) / 2.0}
+
+
 def _ltf_bos_events(candles, direction, start_index):
     """Find post-touch same-direction close BOS events with a preceding OB candle."""
     from config import SWING_N, ATR_PERIOD, STRONG_BOS_ATR
@@ -44,19 +63,17 @@ def _ltf_bos_events(candles, direction, start_index):
         # A confirmation BOS requires a fresh opposing-origin candle since the
         # previous same-direction BOS (the OB at the leg origin).
         segment_start = found[-1]["index"] + 1 if found else start_index + 1
-        has_origin = False
-        for origin in range(segment_start, index):
-            is_opposing = (_get(candles[origin], "c", "close") < _get(candles[origin], "o", "open")
-                           if direction == "BULLISH" else
-                           _get(candles[origin], "c", "close") > _get(candles[origin], "o", "open"))
-            if is_opposing:
-                has_origin = True
-        if not has_origin:
+        opposing = [origin for origin in range(segment_start, index)
+                    if (_get(candles[origin], "c", "close") < _get(candles[origin], "o", "open")
+                        if direction == "BULLISH" else
+                        _get(candles[origin], "c", "close") > _get(candles[origin], "o", "open"))]
+        if not opposing:
             continue
+        ob_index = _origin_ob_index(candles, direction, segment_start, index, opposing)
         atr_sample = candles[max(0, index - ATR_PERIOD + 1):index + 1]
         atr_value = indicators.atr(atr_sample, min(ATR_PERIOD, len(atr_sample)))
         body = abs(_get(candles[index], "c", "close") - _get(candles[index], "o", "open"))
-        found.append({"index": index, "level": swing["price"],
+        found.append({"index": index, "level": swing["price"], "ob": _zone(candles, ob_index, direction),
                       "strong": atr_value is not None and atr_value > 0 and body >= STRONG_BOS_ATR * atr_value})
     return found
 
@@ -152,7 +169,12 @@ def ltf_status(poi, candles_15m, candles_5m, stack_count, session_info=None,
         else:
             status, best_tf = "WAITING_TAP", None
 
-    return {"status": status, "ltf_tf": best_tf,
+    ltf_ob = None
+    if status in ("ENTRY1_READY", "ENTRY2_READY") and best_tf:
+        rows = events[best_tf]
+        chosen = rows[1] if status == "ENTRY2_READY" else rows[0]
+        ltf_ob = dict(chosen["ob"], tf=best_tf)
+    return {"status": status, "ltf_tf": best_tf, "ltf_ob": ltf_ob,
             "entry_restriction": ",".join(restrictions),
             "bos_counts": counts, "bos_events": events}
 
@@ -160,7 +182,7 @@ def ltf_status(poi, candles_15m, candles_5m, stack_count, session_info=None,
 def levels(poi, direction=None, market="forex", symbol=None, spread_pips=None,
            atr_value=None, irl_levels=None, erl_levels=None, current_price=None,
            entry_type="risk", stop_wick=None, pd_levels=None, pw_levels=None,
-           targeted_level=None):
+           targeted_level=None, ltf_ob=None):
     """Calculate informational entry, stop, nearest targets and R:R.
 
     TP2 first uses ``targeted_level`` if it is beyond both entry and current
@@ -178,6 +200,9 @@ def levels(poi, direction=None, market="forex", symbol=None, spread_pips=None,
     direction = str(direction or _direction(poi)).upper()
     if direction not in ("BULLISH", "BEARISH"):
         raise ValueError("direction BULLISH veya BEARISH olmalı")
+    if ltf_ob:
+        # Confirmation entries are placed on the new LTF OB, not on the HTF zone.
+        poi = dict(poi, **{key: ltf_ob[key] for key in ("high", "low", "proximal", "distal", "eq")})
     market = str(market).lower()
     is_crypto = market == "crypto"
     symbol_text = str(symbol or poi.get("symbol", "")).upper()
@@ -203,7 +228,7 @@ def levels(poi, direction=None, market="forex", symbol=None, spread_pips=None,
         if abs(distal - stop) < min_distance:
             stop = distal - min_distance if direction == "BULLISH" else distal + min_distance
         entry = proximal
-        if str(entry_type).lower() in ("confirmation", "confirmation_entry", "entry1", "entry2"):
+        if str(entry_type).lower() in ("confirmation", "double_confirmation", "confirmation_entry", "entry1", "entry2"):
             limit = CRYPTO_DISTAL_ENTRY_MAX_ATR * atr_value
             entry = distal if abs(distal - stop) <= limit else eq
         stop_distance = abs(entry - stop)
@@ -221,7 +246,7 @@ def levels(poi, direction=None, market="forex", symbol=None, spread_pips=None,
         if abs(distal - stop) < min_distance:
             stop = distal - min_distance if direction == "BULLISH" else distal + min_distance
         entry = proximal
-        if str(entry_type).lower() in ("confirmation", "confirmation_entry", "entry1", "entry2"):
+        if str(entry_type).lower() in ("confirmation", "double_confirmation", "confirmation_entry", "entry1", "entry2"):
             distal_stop_pips = abs(distal - stop) / pip_size
             entry = distal if distal_stop_pips <= DISTAL_ENTRY_MAX_PIPS else eq
         stop_distance = abs(entry - stop)
