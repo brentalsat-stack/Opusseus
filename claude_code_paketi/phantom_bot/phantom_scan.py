@@ -356,6 +356,10 @@ def _score_candidate(ob, bias_d1, bias_h4, stack_count, status_data,
             entry_type=entry_type, pd_levels=pd_levels, pw_levels=pw_levels,
             targeted_level=active_context.get("targeted"))
     warnings = list(price_levels.get("warnings", []))
+    if status_data["status"] == "WAITING_TAP":
+        # Price has not returned to the POI yet, so levels between entry and price
+        # are swept by definition; TP1 is only provisional until the tap happens.
+        warnings = ["TP1_PROVISIONAL" if item == "TP1_SWEPT_LEVEL" else item for item in warnings]
     if not pd_valid:
         warnings.append("WRONG_PREMIUM_DISCOUNT")
     if session_info.get("spread_hour"):

@@ -37,7 +37,9 @@ def test_scan_passes_irl():
             bullish = item["direction"] == "BULLISH"
             assert (item["entry"] < item["tp1"] < item["tp2"]) if bullish else (item["entry"] > item["tp1"] > item["tp2"]), item
             assert item["rr_tp1"] >= 1.0 and item["rr_tp1"] < item["rr_tp2"], item
-            assert ("TP1_SWEPT_LEVEL" in item["warnings"]) is swept, item
+            # Bu sentetik adaylar WAITING_TAP: süpürülmüş TP1 "geçici" olarak işaretlenir (Adım 32).
+            assert ("TP1_PROVISIONAL" in item["warnings"]) is swept, item
+            assert "TP1_SWEPT_LEVEL" not in item["warnings"], item
         assert found, "tarama akışı TP1 üretmedi (tohum {}): {}".format(seed, candidates)
     print("Tarama akışında TP1 dolu, TP1 < TP2, süpürülmüş uyarısı doğru: GEÇTİ")
 
