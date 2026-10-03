@@ -209,7 +209,10 @@ def _active_obs(symbol, obs, candles):
 
 
 def _liquidity_levels(candles, unswept_only=True):
-    """Swing highs/lows plus EQH/EQL groups; by default only the still unswept ones."""
+    """Swing highs/lows plus EQH/EQL groups, each flagged ``swept``.
+
+    By default only the still unswept levels are returned.
+    """
     swings = indicators.swing_points(candles, config.SWING_N)
     levels = [{"type": point["type"], "price": point["price"], "index": point["index"]}
               for point in swings]
@@ -218,25 +221,20 @@ def _liquidity_levels(candles, unswept_only=True):
         for group in indicators.equal_levels(swings, atr_value, config.EQ_TOL_ATR):
             levels.append({"type": group["type"], "price": group["price"],
                            "index": max(group["indices"])})
-    if not unswept_only:
-        return levels
-    unswept = []
     for level in levels:
         later = candles[int(level["index"]) + 1:]
         if level["type"] in ("high", "EQH"):
-            swept = any(float(c["h"]) > level["price"] for c in later)
+            level["swept"] = any(float(c["h"]) > level["price"] for c in later)
         else:
-            swept = any(float(c["l"]) < level["price"] for c in later)
-        if not swept:
-            unswept.append(level)
-    return unswept
+            level["swept"] = any(float(c["l"]) < level["price"] for c in later)
+    return [level for level in levels if not (unswept_only and level["swept"])]
 
 
 def _irl_levels(candles, structure_result):
     """Liquidity levels inside the active 4h range (internal range liquidity).
 
-    Already-traded swings stay valid TP1 candidates (12.3.12: nearest IRL at
-    least 1R from entry), so the sweep filter is not applied here.
+    Swept levels are kept but flagged; signals.levels prefers unswept ones and
+    falls back to a swept swing with a TP1_SWEPT_LEVEL warning.
     """
     low, high = structure_result.get("range_low"), structure_result.get("range_high")
     if low is None or high is None:
