@@ -41,10 +41,8 @@ def parse_args(argv=None):
     parser.add_argument("--show-all", action="store_true",
                         help="Raporlarda puan eşiğinin altındaki adayları da göster")
     args = parser.parse_args(argv)
-    # The operational default remains 35 (with 30–40 recommended); allow
-    # smaller explicit lists for the smoke-test command and quick scans.
-    if not 1 <= args.top <= config.CRYPTO_TOP_MAX:
-        parser.error("--top 1 ile {} arasında olmalı".format(config.CRYPTO_TOP_MAX))
+    if not config.CRYPTO_TOP_MIN <= args.top <= config.CRYPTO_TOP_MAX:
+        parser.error("--top {} ile {} arasında olmalı".format(config.CRYPTO_TOP_MIN, config.CRYPTO_TOP_MAX))
     if args.balance is not None or args.risk is not None:
         print("Not: Bölüm 11 gereği --balance/--risk kabul edilir ancak pozisyon büyüklüğü hesaplanmaz.")
     return args
@@ -131,13 +129,6 @@ def _position_label(result):
     if position is None:
         return "UNDEFINED"
     return "Discount" if position < 50 else "Premium"
-
-
-def _position_valid(direction, result):
-    position = result.get("price_position_pct")
-    if position is None:
-        return False
-    return position < 50 if direction == "BULLISH" else position > 50
 
 
 def _active_context(direction, structure_h4):
@@ -294,21 +285,10 @@ def _irl_levels(candles, structure_result):
         _liquidity_levels(candles, unswept_only=False), low, high)["IRL"]
 
 
-def _levels_from_structure(candles, result):
-    swings = indicators.swing_points(candles, config.SWING_N)
-    low, high = result.get("range_low"), result.get("range_high")
-    if low is None or high is None:
-        return {"IRL": [], "ERL": []}
-    return liquidity.classify_liquidity_levels(swings, low, high)
-
-
 def _score_candidate(ob, bias_d1, bias_h4, stack_count, status_data,
                      poi_candles, structure_result, current_price, market, session_info,
-                     pd_levels, pw_levels, same_tf_obs=None, active_context=None,
-                     location=None, price_levels=None, own_structure=None):
+                     same_tf_obs, active_context, location, price_levels, own_structure=None):
     direction = ob["direction"]
-    active_context = active_context or _active_context(direction, structure_result)
-    location = location or _poi_location(ob, direction, active_context)
     position = location.get("position_pct")
     pd_valid = location.get("pd_valid", False)
     session_tags = session_info["session_tags"]
@@ -321,9 +301,6 @@ def _score_candidate(ob, bias_d1, bias_h4, stack_count, status_data,
     left_zone_mitigated = orderblocks.mitigated_left_zone(ob, poi_candles, same_tf_obs or [])
     htf_aligned = bias_d1 == direction and bias_h4 == direction
 
-    # Both timeframes use independent BOS counters, and the more advanced one
-    # is the STATUS source selected by ltf_status.
-    levels_found = _levels_from_structure(poi_candles, structure_result)
     is_asia = "ASIA" in session_tags
     level_hints = _liquidity_levels(poi_candles)
     inducement = liquidity.find_inducement(ob, direction, level_hints,
@@ -352,17 +329,7 @@ def _score_candidate(ob, bias_d1, bias_h4, stack_count, status_data,
     }
     score = scoring.score_setup(setup_for_score)
     restriction = ",".join(session_info["entry_restrictions"])
-    entry_type = "confirmation" if restriction else "risk"
-    if price_levels is not None:
-        entry_type = price_levels.get("entry_type", entry_type)
-    if price_levels is None:
-        price_levels = signals.levels(
-            ob, direction=direction, market=market, symbol=ob.get("symbol"),
-            spread_pips=config.FOREX_SPREAD_PIPS.get(ob.get("symbol", ""), config.FOREX_SPREAD_PIPS["DEFAULT"]),
-            atr_value=indicators.atr(poi_candles, config.ATR_PERIOD),
-            irl_levels=levels_found["IRL"], current_price=current_price,
-            entry_type=entry_type, pd_levels=pd_levels, pw_levels=pw_levels,
-            targeted_level=active_context.get("targeted"))
+    entry_type = price_levels.get("entry_type", "confirmation" if restriction else "risk")
     warnings = list(price_levels.get("warnings", []))
     if status_data["status"] == "WAITING_TAP":
         # Price has not returned to the POI yet, so levels between entry and price
@@ -526,7 +493,7 @@ def _scan_symbol(symbol, market, no_cache, progress):
         candidate = _score_candidate(ob, bias_d1, bias_h4, ob.get("stack_count", 1),
                                      status_data, poi_candles,
                                      structure_result, current_price, market,
-                                     dict(session_info, session_tags=confirmation_tags), pd, pw,
+                                     dict(session_info, session_tags=confirmation_tags),
                                      all_obs[ob.get("timeframe")],
                                      active_context, location, price_levels,
                                      own_structure={"1day": structure_d1, "4h": structure_h4,

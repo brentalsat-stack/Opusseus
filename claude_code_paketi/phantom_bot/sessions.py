@@ -40,30 +40,6 @@ def session_tags(value):
     return tags
 
 
-def asia_range(candles, session_date=None):
-    """Return ASIA high/low/midline for a NY-local 20:00–00:00 session.
-
-    ``session_date`` is the New York calendar date on which the session starts.
-    When omitted, date is inferred from the latest candle and its session side.
-    """
-    if not candles:
-        return {"high": None, "low": None, "midline": None}
-    converted = [(utils.utc_to_new_york(_as_utc(c["t"])), c) for c in candles]
-    if session_date is None:
-        latest = converted[-1][0]
-        session_date = latest.date() - timedelta(days=1) if latest.hour < 1 else latest.date()
-    if isinstance(session_date, str):
-        session_date = datetime.strptime(session_date, "%Y-%m-%d").date()
-    start = datetime.combine(session_date, datetime.min.time()).replace(hour=20)
-    end = datetime.combine(session_date + timedelta(days=1), datetime.min.time())
-    selected = [c for local, c in converted if start <= local.replace(tzinfo=None) < end]
-    if not selected:
-        return {"high": None, "low": None, "midline": None}
-    high = max(float(c.get("h", c.get("high"))) for c in selected)
-    low = min(float(c.get("l", c.get("low"))) for c in selected)
-    return {"high": high, "low": low, "midline": (high + low) / 2.0}
-
-
 def in_spread_hour(value):
     """Whether the New York local time falls in configured rollover window."""
     local = utils.utc_to_new_york(_as_utc(value))

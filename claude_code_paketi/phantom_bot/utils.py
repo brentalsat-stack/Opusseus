@@ -130,13 +130,6 @@ def validate_candle(candle):
             and h >= max(o, c, low) and low <= min(o, c, h) and v >= 0)
 
 
-def normalize_candles(candles):
-    """Mum listesini doğrular ve eskiden yeniye sıralar."""
-    normalized = [normalize_candle(item) for item in candles]
-    normalized.sort(key=lambda item: item["t"])
-    return normalized
-
-
 def _second_sunday(year, month):
     first = datetime(year, month, 1, tzinfo=timezone.utc)
     days_to_sunday = (6 - first.weekday()) % 7
@@ -172,26 +165,6 @@ def utc_to_new_york(value):
             pass
     offset = timedelta(hours=-4 if _is_us_dst_utc(value) else -5)
     return value.astimezone(timezone(offset, "EDT" if offset == timedelta(hours=-4) else "EST"))
-
-
-def new_york_to_utc(value):
-    """New York aware/naive yerel zamanı UTC'ye çevirir; naive değer NY kabul edilir."""
-    if not isinstance(value, datetime):
-        raise TypeError("value datetime olmalı")
-    if value.tzinfo is not None:
-        return value.astimezone(timezone.utc)
-    if ZoneInfo is not None:
-        try:
-            return value.replace(tzinfo=ZoneInfo(config.NEW_YORK_TIMEZONE)).astimezone(timezone.utc)
-        except Exception:
-            pass
-    # Naive yerel saatler DST geçişinin belirsiz saat aralığına denk gelmiyorsa offset seçimi nettir.
-    year = value.year
-    dst_start_local = datetime(year, 3, _second_sunday(year, 3), 3, 0)
-    dst_end_local = datetime(year, 11, _first_sunday(year, 11), 2, 0)
-    is_dst = dst_start_local <= value < dst_end_local
-    offset = timedelta(hours=-4 if is_dst else -5)
-    return value.replace(tzinfo=timezone(offset, "EDT" if is_dst else "EST")).astimezone(timezone.utc)
 
 
 def now_utc():

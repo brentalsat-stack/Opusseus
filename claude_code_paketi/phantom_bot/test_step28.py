@@ -10,7 +10,7 @@ def breakdown(direction, bias_d1, bias_h4):
               "rr_tp1": None, "rr_tp2": 2.0, "warnings": []}
     result = phantom_scan._score_candidate(
         ob, bias_d1, bias_h4, 1, {"status": "WAITING_TAP"}, [], {"events": []}, 1.5, "crypto",
-        {"session_tags": [], "entry_restrictions": []}, {}, {}, [],
+        {"session_tags": [], "entry_restrictions": []}, [],
         {"range_low": 0, "range_high": 3, "protected": 0, "targeted": 3},
         {"pd_valid": True, "position_pct": 40}, levels)
     return {row["criterion"] for row in result["score_breakdown"]}

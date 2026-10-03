@@ -13,20 +13,16 @@ TWELVEDATA_API_KEY = "BURAYA_ANAHTAR"  # Gerçek anahtar config_local.py içinde
 TWELVEDATA_BASE_URL = "https://api.twelvedata.com"  # Forex ve altın veri alan adı
 TWELVEDATA_TIME_SERIES_PATH = "/time_series"  # Mum verisi uç noktası
 FOREX_SYMBOLS = ["EUR/USD", "GBP/USD", "GBP/JPY", "EUR/JPY", "AUD/USD", "NZD/USD", "USD/CAD", "EUR/GBP", "XAU/USD"]  # Varsayılan forex ve altın evreni
-TWELVEDATA_INTERVALS = ["1day", "4h", "1h", "15min", "5min"]  # Twelve Data zaman dilimleri
-ENABLE_1M = False  # Forex 1 dakikalık veri ilk sürümde kapalıdır
+ENABLE_1M = False  # Ayrılmış ayar (Bölüm 11.16): 1 dakikalık veri ilk sürümde kullanılmaz
 TWELVEDATA_OUTPUTSIZE = 500  # İstek başına istenen mum sayısı
 REQUEST_DELAY_TD = 8.0  # Twelve Data istekleri arasındaki asgari bekleme saniyesi
-TD_RETRY_COUNT = 2  # Hata halinde toplam istek denemesi
 TD_CACHE_TTL_SECONDS = {"1day": 21600, "4h": 3600}  # Günlük 6 saat, 4 saatlik 1 saat önbellek süresi
-TD_ALWAYS_REFRESH = ["1h", "15min", "5min"]  # Her taramada yeniden alınan aralıklar
 TD_TIMEOUT_SECONDS = 20  # HTTP bağlantı zaman aşımı
 
 # Binance public spot API
 BINANCE_BASE_URLS = ["https://api.binance.com", "https://data-api.binance.vision"]  # Ana ve yedek alan adları
 BINANCE_TICKER_24HR_PATH = "/api/v3/ticker/24hr"  # 24 saatlik spot hacimleri
 BINANCE_KLINES_PATH = "/api/v3/klines"  # Mum verisi uç noktası
-BINANCE_INTERVALS = ["1d", "4h", "1h", "15m", "5m"]  # Binance zaman dilimleri
 BINANCE_KLINE_LIMIT = 500  # İstek başına mum sayısı
 CRYPTO_TOP_DEFAULT = 35  # Hacme göre varsayılan seçilecek coin sayısı
 CRYPTO_TOP_MIN = 30  # İzin verilen en düşük coin sayısı
@@ -55,7 +51,6 @@ STRONG_BOS_ATR = 1.5  # Güçlü BOS için gövde/ATR alt sınırı
 EQ_TOL_ATR = 0.1  # EQH/EQL eşleşme toleransı
 MAX_TOUCHES = 2  # OB bu sayıda ziyarette mitigate kabul edilir
 REQUIRE_FVG_FOR_OB = False  # OB bacağında FVG bulunmasını zorunlu kıl
-ENABLE_FVG_REQUIREMENT = REQUIRE_FVG_FOR_OB  # FVG zorunluluğu için uyumlu ayar adı
 
 # Seanslar (New York yerel saati)
 SESSIONS = [  # Ad, başlangıç, bitiş, aktiflik
@@ -104,7 +99,6 @@ ACTIONABLE_DISTANCE_PCT = {"crypto": 10.0, "forex": 1.0}  # Girişin son fiyata 
 
 # Yerel zaman dilimi
 NEW_YORK_TIMEZONE = "America/New_York"  # New York saat dilimi adı
-UTC_TIMEZONE = "UTC"  # Verilerin ortak zaman dilimi
 
 # Yerel geçersiz kılmalar (API anahtarı vb.); config_local.py yoksa sessizce atlanır
 try:

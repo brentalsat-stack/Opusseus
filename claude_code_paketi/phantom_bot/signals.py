@@ -183,8 +183,8 @@ def ltf_status(poi, candles_15m, candles_5m, stack_count, session_info=None,
 
 
 def levels(poi, direction=None, market="forex", symbol=None, spread_pips=None,
-           atr_value=None, irl_levels=None, erl_levels=None, current_price=None,
-           entry_type="risk", stop_wick=None, pd_levels=None, pw_levels=None,
+           atr_value=None, irl_levels=None, current_price=None,
+           entry_type="risk", pd_levels=None, pw_levels=None,
            targeted_level=None, ltf_ob=None):
     """Calculate informational entry, stop, nearest targets and R:R.
 
@@ -224,9 +224,7 @@ def levels(poi, direction=None, market="forex", symbol=None, spread_pips=None,
     if is_crypto:
         atr_value = float(atr_value or 0.0)
         buffer = CRYPTO_STOP_BUFFER_ATR * atr_value
-        stop = min(distal, float(stop_wick)) - buffer if direction == "BULLISH" and stop_wick is not None else (
-            max(distal, float(stop_wick)) + buffer if direction == "BEARISH" and stop_wick is not None else
-            distal - buffer if direction == "BULLISH" else distal + buffer)
+        stop = distal - buffer if direction == "BULLISH" else distal + buffer
         min_distance = (float(poi.get("reference_price", current_price or eq)) * CRYPTO_MIN_STOP_PCT / 100.0)
         entry = proximal
         if str(entry_type).lower() in ("confirmation", "double_confirmation", "confirmation_entry", "entry1", "entry2"):
@@ -243,9 +241,7 @@ def levels(poi, direction=None, market="forex", symbol=None, spread_pips=None,
                        FOREX_SPREAD_PIPS.get(str(symbol or poi.get("symbol", "")), FOREX_SPREAD_PIPS["DEFAULT"]))
         buffer_pips = max(spread, FOREX_STOP_BUFFER_MIN_PIPS)
         buffer = buffer_pips * pip_size
-        stop = min(distal, float(stop_wick)) - buffer if direction == "BULLISH" and stop_wick is not None else (
-            max(distal, float(stop_wick)) + buffer if direction == "BEARISH" and stop_wick is not None else
-            distal - buffer if direction == "BULLISH" else distal + buffer)
+        stop = distal - buffer if direction == "BULLISH" else distal + buffer
         min_distance = FOREX_MIN_STOP_PIPS * pip_size
         entry = proximal
         if str(entry_type).lower() in ("confirmation", "double_confirmation", "confirmation_entry", "entry1", "entry2"):
