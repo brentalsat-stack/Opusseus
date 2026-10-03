@@ -43,12 +43,12 @@ def isolate_dirs():
     return root
 
 
-def scan(seed, symbol="TESTUSDT"):
+def scan(seed, symbol="TESTUSDT", market="crypto"):
     """Verilen tohumla sentetik veriyi _scan_symbol'den geçirip (adaylar, özet) döndürür."""
     data = make_data(seed)
     original = phantom_scan._load_symbol_data
     phantom_scan._load_symbol_data = lambda *args, **kwargs: data
     try:
-        return phantom_scan._scan_symbol(symbol, "crypto", False, lambda *a: None)
+        return phantom_scan._scan_symbol(symbol, market, False, lambda *a: None)
     finally:
         phantom_scan._load_symbol_data = original
