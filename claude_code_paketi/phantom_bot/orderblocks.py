@@ -203,7 +203,7 @@ def find_order_blocks(candles, structure_result=None, timeframe="4h"):
     """
     if not structure_result:
         return []
-    from config import ATR_PERIOD, DISPLACEMENT_ATR
+    from config import ATR_PERIOD, DISPLACEMENT_ATR, REQUIRE_FVG_FOR_OB
 
     events = structure_result.get("events", []) if isinstance(structure_result, dict) else structure_result
     blocks = []
@@ -261,6 +261,8 @@ def find_order_blocks(candles, structure_result=None, timeframe="4h"):
         leg_start = displacement_index if displacement_index is not None else ob_index + 1
         has_fvg = any(fvg["type"] == ("bullish" if direction == "BULLISH" else "bearish") and
                       leg_start <= fvg["end_index"] <= bos_index for fvg in fvg_list)
+        if REQUIRE_FVG_FOR_OB and not has_fvg:
+            continue
         is_extreme = origin_index is not None and ob_index == int(origin_index)
         blocks.append({"direction": direction, "timeframe": timeframe, "index": ob_index,
                        "bos_index": bos_index, "origin_index": origin_index,

@@ -19,7 +19,7 @@ def main():
                   "rr_tp1": None, "rr_tp2": 2.0, "warnings": []}
         phantom_scan._score_candidate(
             ob, "BULLISH", "BULLISH", 1, {"status": "WAITING_TAP"}, [], h4_structure,
-            1.5, "crypto", session, {}, {}, [], {"range_low": 0, "range_high": 3, "protected": 0,
+            1.5, "crypto", session, [], {"range_low": 0, "range_high": 3, "protected": 0,
                                                 "targeted": 3}, {"pd_valid": True, "position_pct": 40},
             levels, own_structure=h1_structure)
     finally:
