@@ -35,8 +35,11 @@ BINANCE_REQUEST_DELAY = 0.25  # Binance istekleri arasındaki bekleme saniyesi
 BINANCE_RATE_LIMIT_WAIT = 60  # HTTP 418/429 için uzun bekleme saniyesi
 BINANCE_TIMEOUT_SECONDS = 20  # HTTP bağlantı zaman aşımı
 BINANCE_QUOTE_ASSET = "USDT"  # Evrene alınacak spot quote varlığı
-BINANCE_EXCLUDED_BASES = ["USDC", "FDUSD", "TUSD", "DAI", "USDP", "EUR", "BUSD"]  # Hariç tutulan stablecoin tabanları
-BINANCE_LEVERAGED_MARKERS = ["UP", "DOWN", "BULL", "BEAR"]  # Hariç tutulan kaldıraçlı token işaretleri
+BINANCE_EXCLUDED_BASES = ["USDC", "FDUSD", "TUSD", "DAI", "USDP", "EUR", "BUSD", "USD1", "RLUSD"]  # Hariç tutulan stablecoin tabanları
+BINANCE_LEVERAGED_MARKERS = ["UP", "DOWN", "BULL", "BEAR"]  # Kaldıraçlı token SONEKLERİ (BTCUP, ETHDOWN); ana varlığı da USDT'de listeliyse elenir
+EXCLUDED_SYMBOLS = ["UUSDT", "USD1USDT", "RLUSDUSDT",  # Stable benzeri varlıklar
+                    "XAUTUSDT", "PAXGUSDT",  # Altın tokenları
+                    "CRCLBUSDT", "SPCXBUSDT", "SNDKBUSDT"]  # Tokenize hisseler (sonu B); yenileri elle ekleyin
 
 # Piyasa yapısı ve indikatör eşikleri
 SWING_N = 2  # Swing onayı için her iki taraftaki mum sayısı
