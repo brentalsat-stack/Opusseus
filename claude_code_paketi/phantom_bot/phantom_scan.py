@@ -339,7 +339,8 @@ def _score_candidate(ob, bias_d1, bias_h4, stack_count, status_data,
         "session_tags": session_tags,
         "asia": is_asia,
         "news": "NEWS" in session_info["entry_restrictions"],
-        "counter_trend": not htf_aligned,
+        # Penalty only when the 4h bias is clearly opposite; UNDEFINED is neutral.
+        "counter_trend": bias_h4 not in (direction, "UNDEFINED"),
     }
     score = scoring.score_setup(setup_for_score)
     restriction = ",".join(session_info["entry_restrictions"])
