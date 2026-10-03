@@ -1,8 +1,10 @@
 """Adım 2 canlı Binance public API kontrolü."""
 import data_binance
+import synth
 
 
 def main():
+    synth.isolate_dirs()  # günlükler ve önbellek gerçek klasöre yazılmasın
     symbols = data_binance.get_top_symbols(35)
     print("İlk 35 USDT spot sembolü (24 saatlik quoteVolume):")
     for rank, row in enumerate(symbols, 1):
