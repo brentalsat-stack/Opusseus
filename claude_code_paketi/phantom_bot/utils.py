@@ -21,6 +21,11 @@ def ensure_directories():
         os.makedirs(path, exist_ok=True)
 
 
+def mask_secrets(message):
+    """Return ``message`` with the API key and ``apikey=`` query values masked."""
+    return _safe_log_message(message)
+
+
 def _safe_log_message(message):
     """Log içeriğinde API anahtarı ve URL query anahtarlarını maskeler."""
     value = str(message)
