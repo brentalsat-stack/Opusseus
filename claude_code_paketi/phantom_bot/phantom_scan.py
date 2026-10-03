@@ -502,19 +502,11 @@ def run_scan(args):
             all_results.extend(candidates)
             summaries.append(summary)
         except Exception as exc:
-            message = "{} taraması başarısız: {}".format(symbol, exc)
+            message = utils.mask_secrets("{} taraması başarısız: {}".format(symbol, exc))
             errors.append(message)
             utils.log(message)
             traceback_tail = "\n".join(traceback.format_exc().strip().splitlines()[-3:])
-            log_path = os.path.join(config.LOGS_DIR, "run_{}.log".format(
-                datetime.now(timezone.utc).strftime("%Y-%m-%d")))
-            try:
-                with open(log_path, "a", encoding="utf-8") as log_file:
-                    log_file.write("[{}] {} traceback (son 3 satır):\n{}\n".format(
-                        datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"), symbol,
-                        traceback_tail))
-            except OSError:
-                pass
+            utils.log_file_only("{} traceback (son 3 satır):\n{}".format(symbol, traceback_tail))
             print("[{}/{}] {} HATA — devam ediliyor".format(index, total, symbol))
 
     duration = round(time.monotonic() - started, 2)
@@ -544,7 +536,7 @@ def main(argv=None):
         return 130
     except Exception as exc:
         utils.log("Tarama başlatılamadı: {}".format(exc))
-        print("Tarama hatası: {}".format(exc), file=sys.stderr)
+        print("Tarama hatası: {}".format(utils.mask_secrets(exc)), file=sys.stderr)
         return 1
     return 0
 
