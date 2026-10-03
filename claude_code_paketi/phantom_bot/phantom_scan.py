@@ -50,7 +50,11 @@ def parse_args(argv=None):
     return args
 
 
-def _symbol_list(args):
+def _symbol_list(args, errors=None):
+    """Build (symbol, market) pairs; a failed crypto universe fetch only skips crypto.
+
+    With ``--market crypto`` there is nothing else to scan, so the failure is raised.
+    """
     if args.symbols:
         requested = [part.strip() for part in args.symbols.split(",") if part.strip()]
         if args.market == "forex":
@@ -64,8 +68,16 @@ def _symbol_list(args):
     if args.market in ("forex", "all"):
         selections.extend((symbol, "forex") for symbol in config.FOREX_SYMBOLS)
     if args.market in ("crypto", "all"):
-        top_symbols = data_binance.get_top_symbols(args.top)
-        selections.extend((item["symbol"], "crypto") for item in top_symbols)
+        try:
+            top_symbols = data_binance.get_top_symbols(args.top)
+            selections.extend((item["symbol"], "crypto") for item in top_symbols)
+        except Exception as exc:
+            if args.market == "crypto":
+                raise
+            message = utils.mask_secrets("Kripto evreni alınamadı, kripto atlandı: {}".format(exc))
+            utils.log(message)
+            if errors is not None:
+                errors.append(message)
     return selections
 
 
@@ -467,10 +479,11 @@ def run_scan(args):
     scan_time = datetime.now(timezone.utc)
     utils.ensure_directories()
     print("Uyarı: a-Shell'i tarama boyunca ön planda tutun.")
-    selections = _symbol_list(args)
+    errors = []
+    selections = _symbol_list(args, errors)
     if not selections:
         raise RuntimeError("Taranacak sembol bulunamadı")
-    all_results, summaries, errors = [], [], []
+    all_results, summaries = [], []
     total = len(selections)
 
     for index, (symbol, market) in enumerate(selections, 1):
