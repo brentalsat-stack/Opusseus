@@ -228,12 +228,13 @@ def levels(poi, direction=None, market="forex", symbol=None, spread_pips=None,
             max(distal, float(stop_wick)) + buffer if direction == "BEARISH" and stop_wick is not None else
             distal - buffer if direction == "BULLISH" else distal + buffer)
         min_distance = (float(poi.get("reference_price", current_price or eq)) * CRYPTO_MIN_STOP_PCT / 100.0)
-        if abs(distal - stop) < min_distance:
-            stop = distal - min_distance if direction == "BULLISH" else distal + min_distance
         entry = proximal
         if str(entry_type).lower() in ("confirmation", "double_confirmation", "confirmation_entry", "entry1", "entry2"):
             limit = CRYPTO_DISTAL_ENTRY_MAX_ATR * atr_value
             entry = distal if abs(distal - stop) <= limit else eq
+        # Minimum stop is measured from the entry, not from the distal edge.
+        if abs(entry - stop) < min_distance:
+            stop = entry - min_distance if direction == "BULLISH" else entry + min_distance
         stop_distance = abs(entry - stop)
         stop_metric = (stop_distance / entry * 100.0) if entry else None
         stop_unit = "pct"
@@ -246,12 +247,13 @@ def levels(poi, direction=None, market="forex", symbol=None, spread_pips=None,
             max(distal, float(stop_wick)) + buffer if direction == "BEARISH" and stop_wick is not None else
             distal - buffer if direction == "BULLISH" else distal + buffer)
         min_distance = FOREX_MIN_STOP_PIPS * pip_size
-        if abs(distal - stop) < min_distance:
-            stop = distal - min_distance if direction == "BULLISH" else distal + min_distance
         entry = proximal
         if str(entry_type).lower() in ("confirmation", "double_confirmation", "confirmation_entry", "entry1", "entry2"):
             distal_stop_pips = abs(distal - stop) / pip_size
             entry = distal if distal_stop_pips <= DISTAL_ENTRY_MAX_PIPS else eq
+        # Minimum stop is measured from the entry, not from the distal edge.
+        if abs(entry - stop) < min_distance:
+            stop = entry - min_distance if direction == "BULLISH" else entry + min_distance
         stop_distance = abs(entry - stop)
         stop_metric = stop_distance / pip_size if pip_size else None
         stop_unit = "pips"
