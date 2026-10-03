@@ -257,11 +257,7 @@ def _score_candidate(ob, bias_d1, bias_h4, stack_count, status_data,
     # is the STATUS source selected by ltf_status.
     levels_found = _levels_from_structure(poi_candles, structure_result)
     is_asia = "ASIA" in session_tags
-    level_hints = [{"type": value.get("type", "high" if direction == "BEARISH" else "low"),
-                    "price": value.get("price", value.get("level"))}
-                   if isinstance(value, dict) else
-                   {"type": "high" if direction == "BEARISH" else "low", "price": value}
-                   for value in levels_found["IRL"]]
+    level_hints = _liquidity_levels(poi_candles)
     inducement = liquidity.find_inducement(ob, direction, level_hints,
                                             current_price=current_price)
     setup_for_score = {

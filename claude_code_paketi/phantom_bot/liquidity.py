@@ -42,14 +42,19 @@ def detect_sweeps(candles, levels):
 
 
 def find_inducement(poi, direction, levels, current_price=None):
-    """Find nearest unswept swing/EQ liquidity between price and an OB POI.
+    """Find the nearest swing/EQ liquidity between an OB POI and current price.
 
-    For bullish setups, EQL/swing lows are inducement below a bullish POI;
-    for bearish setups, EQH/swing highs are above a bearish POI.
+    Bullish setups (POI below price): an EQL/swing low above the POI's
+    proximal edge and below the current price. Bearish setups mirror it with
+    EQH/swing highs below the proximal edge and above the current price.
+    Without a current price there is no "between" range, so None is returned.
     """
+    if current_price is None:
+        return None
     direction = str(direction).upper()
     poi_low = float(poi.get("low", poi.get("distal", poi.get("price", 0))))
     poi_high = float(poi.get("high", poi.get("proximal", poi.get("price", 0))))
+    current = float(current_price)
     candidates = []
     for raw in levels:
         if not isinstance(raw, dict):
@@ -59,17 +64,15 @@ def find_inducement(poi, direction, levels, current_price=None):
         if price is None:
             continue
         price = float(price)
-        if direction == "BULLISH" and kind in ("LOW", "SWING_LOW", "EQL") and price < poi_low:
-            if current_price is None or price > float(current_price):
-                candidates.append(raw)
-        elif direction == "BEARISH" and kind in ("HIGH", "SWING_HIGH", "EQH") and price > poi_high:
-            if current_price is None or price < float(current_price):
-                candidates.append(raw)
+        if direction == "BULLISH" and kind in ("LOW", "SWING_LOW", "EQL") and poi_high < price < current:
+            candidates.append(raw)
+        elif direction == "BEARISH" and kind in ("HIGH", "SWING_HIGH", "EQH") and current < price < poi_low:
+            candidates.append(raw)
     if not candidates:
         return None
     # Closest candidate to the POI on its inducement side.
     return min(candidates, key=lambda item: abs(float(item.get("price", item.get("level"))) -
-                                                  (poi_low if direction == "BULLISH" else poi_high)))
+                                                  (poi_high if direction == "BULLISH" else poi_low)))
 
 
 def classify_liquidity_levels(swings, range_low, range_high):
