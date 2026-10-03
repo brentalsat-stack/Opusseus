@@ -208,8 +208,8 @@ def _active_obs(symbol, obs, candles):
     return active
 
 
-def _liquidity_levels(candles):
-    """Unswept swing highs/lows plus EQH/EQL groups of a candle series."""
+def _liquidity_levels(candles, unswept_only=True):
+    """Swing highs/lows plus EQH/EQL groups; by default only the still unswept ones."""
     swings = indicators.swing_points(candles, config.SWING_N)
     levels = [{"type": point["type"], "price": point["price"], "index": point["index"]}
               for point in swings]
@@ -218,6 +218,8 @@ def _liquidity_levels(candles):
         for group in indicators.equal_levels(swings, atr_value, config.EQ_TOL_ATR):
             levels.append({"type": group["type"], "price": group["price"],
                            "index": max(group["indices"])})
+    if not unswept_only:
+        return levels
     unswept = []
     for level in levels:
         later = candles[int(level["index"]) + 1:]
@@ -231,11 +233,16 @@ def _liquidity_levels(candles):
 
 
 def _irl_levels(candles, structure_result):
-    """Liquidity levels inside the active 4h range (internal range liquidity)."""
+    """Liquidity levels inside the active 4h range (internal range liquidity).
+
+    Already-traded swings stay valid TP1 candidates (12.3.12: nearest IRL at
+    least 1R from entry), so the sweep filter is not applied here.
+    """
     low, high = structure_result.get("range_low"), structure_result.get("range_high")
     if low is None or high is None:
         return []
-    return liquidity.classify_liquidity_levels(_liquidity_levels(candles), low, high)["IRL"]
+    return liquidity.classify_liquidity_levels(
+        _liquidity_levels(candles, unswept_only=False), low, high)["IRL"]
 
 
 def _levels_from_structure(candles, result):
