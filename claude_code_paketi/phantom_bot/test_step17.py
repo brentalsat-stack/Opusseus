@@ -25,19 +25,21 @@ def test_irl_helper():
 
 def test_scan_passes_irl():
     synth.isolate_dirs()
-    candidates, _ = synth.scan(75)
-    assert candidates, "sentetik veri aday üretmedi"
-    found = 0
-    for item in candidates:
-        if item["tp1"] is None:
-            continue
-        found += 1
-        assert item["tp2"] is not None
-        bullish = item["direction"] == "BULLISH"
-        assert (item["entry"] < item["tp1"] < item["tp2"]) if bullish else (item["entry"] > item["tp1"] > item["tp2"]), item
-        assert item["rr_tp1"] >= 1.0 and item["rr_tp1"] < item["rr_tp2"], item
-    assert found, "tarama akışı TP1 üretmedi: {}".format(candidates)
-    print("Tarama akışında TP1 dolu ve TP1 < TP2: GEÇTİ")
+    # Tohum 617: süpürülmemiş IRL; tohum 279: yalnız süpürülmüş swing (TP1_SWEPT_LEVEL).
+    for seed, swept in ((617, False), (279, True)):
+        candidates, _ = synth.scan(seed)
+        found = 0
+        for item in candidates:
+            if item["tp1"] is None:
+                continue
+            found += 1
+            assert item["tp2"] is not None
+            bullish = item["direction"] == "BULLISH"
+            assert (item["entry"] < item["tp1"] < item["tp2"]) if bullish else (item["entry"] > item["tp1"] > item["tp2"]), item
+            assert item["rr_tp1"] >= 1.0 and item["rr_tp1"] < item["rr_tp2"], item
+            assert ("TP1_SWEPT_LEVEL" in item["warnings"]) is swept, item
+        assert found, "tarama akışı TP1 üretmedi (tohum {}): {}".format(seed, candidates)
+    print("Tarama akışında TP1 dolu, TP1 < TP2, süpürülmüş uyarısı doğru: GEÇTİ")
 
 
 def test_tp1_prefers_unswept():
