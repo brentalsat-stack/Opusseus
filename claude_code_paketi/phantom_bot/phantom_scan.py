@@ -222,14 +222,16 @@ def _levels_from_structure(candles, result):
 def _score_candidate(ob, bias_d1, bias_h4, stack_count, status_data,
                      poi_candles, structure_result, current_price, market, session_info,
                      pd_levels, pw_levels, same_tf_obs=None, active_context=None,
-                     location=None, price_levels=None):
+                     location=None, price_levels=None, own_structure=None):
     direction = ob["direction"]
     active_context = active_context or _active_context(direction, structure_result)
     location = location or _poi_location(ob, direction, active_context)
     position = location.get("position_pct")
     pd_valid = location.get("pd_valid", False)
     session_tags = session_info["session_tags"]
-    all_events = structure_result.get("events", [])
+    # OB indexes belong to the POI timeframe, so events must come from that
+    # same timeframe's structure (structure_result is always the 4h context).
+    all_events = (own_structure if own_structure is not None else structure_result).get("events", [])
     sweep_then_bos = orderblocks.sweep_then_bos(ob, poi_candles, all_events)
     major_break = orderblocks.major_structure_break(ob, poi_candles, all_events)
     return_flags = orderblocks.return_profile(ob, poi_candles)
@@ -423,7 +425,9 @@ def _scan_symbol(symbol, market, no_cache, progress):
                                      status_data, poi_candles,
                                      structure_result, current_price, market, session_info, pd, pw,
                                      ob_h4 if ob.get("timeframe") == "4h" else ob_h1,
-                                     active_context, location, price_levels)
+                                     active_context, location, price_levels,
+                                     own_structure={"1day": structure_d1, "4h": structure_h4,
+                                                    "1h": structure_h1}.get(ob.get("timeframe")))
         candidate.update({"protected": active_context.get("protected"),
                           "targeted": active_context.get("targeted"),
                           "range_low": active_context.get("range_low"),
