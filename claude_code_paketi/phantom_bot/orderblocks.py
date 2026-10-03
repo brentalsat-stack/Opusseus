@@ -238,18 +238,19 @@ def find_order_blocks(candles, structure_result=None, timeframe="4h"):
             continue
         ob_index = candidates[-1]
 
-        # Refinement: if price did not close through the selected OB on the
-        # following candle, step back to the candle immediately preceding it.
-        # The shift is accepted only when that prior candle is an opposing candle.
+        # Refinement: if the candle after the OB does not close through it, the
+        # real momentum starts later; the OB moves forward to the candle that
+        # immediately precedes the momentum (displacement, else BOS) candle.
         next_index = ob_index + 1
         if next_index < len(candles):
             next_close = _price(candles[next_index], "c", "close")
             ob_high = _price(candles[ob_index], "h", "high")
             ob_low = _price(candles[ob_index], "l", "low")
             failed_to_clear = next_close <= ob_high if direction == "BULLISH" else next_close >= ob_low
-            prior = ob_index - 1
-            if failed_to_clear and prior >= search_start and opposing(candles[prior]):
-                ob_index = prior
+            momentum_index = displacement_index if displacement_index is not None else bos_index
+            pre_momentum = momentum_index - 1
+            if failed_to_clear and ob_index < pre_momentum and pre_momentum >= search_start:
+                ob_index = pre_momentum
 
         candle = candles[ob_index]
         zone_high = _price(candle, "h", "high")
