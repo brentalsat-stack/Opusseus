@@ -193,6 +193,25 @@ def _distance_filter(entry, current_price, daily_candles):
     return distance <= config.MAX_POI_DISTANCE_ATR_D1 * daily_atr, daily_atr, distance
 
 
+def _session_context(market, symbol, when):
+    """Scan-time session tags, entry restrictions and rollover flag.
+
+    Sessions, SUNDAY/ASIA restrictions and rollover are forex-only (Bölüm 6.6);
+    crypto only gets NEWS (USD/ALL rows of news.csv).
+    """
+    tags, restrictions, spread_hour = [], [], False
+    if market == "forex":
+        tags = sessions.session_tags(when)
+        if sessions.sunday_open_restriction(when):
+            restrictions.append("SUNDAY")
+        if "ASIA" in tags:
+            restrictions.append("ASIA")
+        spread_hour = sessions.in_spread_hour(when)
+    if sessions.news_warnings(when, symbol, market):
+        restrictions.append("NEWS")
+    return tags, restrictions, spread_hour
+
+
 def _active_obs(symbol, obs, candles):
     """Evaluate OB states; keep only FRESH/TAPPED blocks (mitigated/invalid are logged)."""
     active = []
@@ -401,17 +420,11 @@ def _scan_symbol(symbol, market, no_cache, progress):
     reference_time = current_candle.get("t", series["1h"][-1].get("t"))
     pd = liquidity.pdh_pdl(series["1h"], reference_time)
     pw = liquidity.pwh_pwl(series["1h"], reference_time)
-    local_time = datetime.fromtimestamp(int(reference_time), timezone.utc)
-    tags = sessions.session_tags(local_time)
-    entry_restrictions = []
-    if sessions.sunday_open_restriction(local_time):
-        entry_restrictions.append("SUNDAY")
-    if "ASIA" in tags:
-        entry_restrictions.append("ASIA")
-    if sessions.news_warnings(local_time, symbol, market):
-        entry_restrictions.append("NEWS")
-    session_info = {"session_tags": tags, "entry_restrictions": entry_restrictions}
-    session_info["spread_hour"] = sessions.in_spread_hour(local_time)
+    local_time = utils.now_utc()  # restrictions describe the moment of the scan
+    tags, entry_restrictions, spread_hour = _session_context(market, symbol, local_time)
+    scan_tags = tags
+    session_info = {"session_tags": [], "entry_restrictions": entry_restrictions,
+                    "spread_hour": spread_hour}
 
     summary = {"symbol": symbol, "htf_bias_d1": bias_d1, "htf_bias_h4": bias_h4,
                "protected": structure_h4.get("protected"), "targeted": structure_h4.get("targeted"),
@@ -475,7 +488,7 @@ def _scan_symbol(symbol, market, no_cache, progress):
             "sunday": "SUNDAY" in entry_restrictions,
             "asia": "ASIA" in entry_restrictions,
             "news": "NEWS" in entry_restrictions,
-            "session_tags": tags,
+            "session_tags": scan_tags,
         }, htf_state=ob_state["state"])
         progress(ob.get("timeframe", "POI"), status_data["status"])
         if status_data["status"] == "INVALIDATED":
@@ -492,9 +505,14 @@ def _scan_symbol(symbol, market, no_cache, progress):
                 entry_type="double_confirmation" if status_data["status"] == "ENTRY2_READY" else "confirmation",
                 irl_levels=irl_levels, pd_levels=pd, pw_levels=pw,
                 targeted_level=active_context.get("targeted"), ltf_ob=status_data["ltf_ob"])
+        # Session label/score belong to the confirmation (LTF BOS) moment, forex only.
+        confirmation_time = status_data.get("confirmation_time")
+        confirmation_tags = (sessions.session_tags(confirmation_time)
+                             if market == "forex" and confirmation_time else [])
         candidate = _score_candidate(ob, bias_d1, bias_h4, ob.get("stack_count", 1),
                                      status_data, poi_candles,
-                                     structure_result, current_price, market, session_info, pd, pw,
+                                     structure_result, current_price, market,
+                                     dict(session_info, session_tags=confirmation_tags), pd, pw,
                                      all_obs[ob.get("timeframe")],
                                      active_context, location, price_levels,
                                      own_structure={"1day": structure_d1, "4h": structure_h4,

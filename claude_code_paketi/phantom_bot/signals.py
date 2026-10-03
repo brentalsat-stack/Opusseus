@@ -73,7 +73,7 @@ def _ltf_bos_events(candles, direction, start_index):
         atr_sample = candles[max(0, index - ATR_PERIOD + 1):index + 1]
         atr_value = indicators.atr(atr_sample, min(ATR_PERIOD, len(atr_sample)))
         body = abs(_get(candles[index], "c", "close") - _get(candles[index], "o", "open"))
-        found.append({"index": index, "level": swing["price"], "ob": _zone(candles, ob_index, direction),
+        found.append({"index": index, "t": candles[index].get("t"), "level": swing["price"], "ob": _zone(candles, ob_index, direction),
                       "strong": atr_value is not None and atr_value > 0 and body >= STRONG_BOS_ATR * atr_value})
     return found
 
@@ -170,11 +170,14 @@ def ltf_status(poi, candles_15m, candles_5m, stack_count, session_info=None,
             status, best_tf = "WAITING_TAP", None
 
     ltf_ob = None
+    confirmation_time = None
     if status in ("ENTRY1_READY", "ENTRY2_READY") and best_tf:
         rows = events[best_tf]
         chosen = rows[1] if status == "ENTRY2_READY" else rows[0]
         ltf_ob = dict(chosen["ob"], tf=best_tf)
+        confirmation_time = chosen.get("t")
     return {"status": status, "ltf_tf": best_tf, "ltf_ob": ltf_ob,
+            "confirmation_time": confirmation_time,
             "entry_restriction": ",".join(restrictions),
             "bos_counts": counts, "bos_events": events}
 
