@@ -181,6 +181,21 @@ def _distance_filter(entry, current_price, daily_candles):
     return distance <= config.MAX_POI_DISTANCE_ATR_D1 * daily_atr, daily_atr, distance
 
 
+def _active_obs(symbol, obs, candles):
+    """Evaluate OB states; keep only FRESH/TAPPED blocks (mitigated/invalid are logged)."""
+    active = []
+    for ob in obs:
+        state = orderblocks.evaluate_ob_state(ob, candles)
+        ob["state"] = state["state"]
+        ob["touches"] = state["touches"]
+        if ob["state"] in ("MITIGATED", "INVALID"):
+            utils.log_file_only("{} {} {} {}".format(
+                symbol, ob.get("timeframe", "POI"), ob.get("direction", ""), ob["state"]))
+            continue
+        active.append(ob)
+    return active
+
+
 def _liquidity_levels(candles):
     """Unswept swing highs/lows plus EQH/EQL groups of a candle series."""
     swings = indicators.swing_points(candles, config.SWING_N)
@@ -337,7 +352,12 @@ def _scan_symbol(symbol, market, no_cache, progress):
             ob["bos_time"] = int(timeframe_candles[bos_index]["t"]) + TIMEFRAME_SECONDS[ob["timeframe"]]
         else:
             ob["bos_time"] = None
-    stacked_pois = orderblocks.stack_obs(ob_d1, ob_h4, ob_h1)
+    # Only live (FRESH/TAPPED) blocks may stack or become POIs; the full lists
+    # stay available for the "mitigated left zone" criterion.
+    all_obs = {"4h": ob_h4, "1h": ob_h1}
+    stacked_pois = orderblocks.stack_obs(
+        _active_obs(symbol, ob_d1, d1), _active_obs(symbol, ob_h4, h4),
+        _active_obs(symbol, ob_h1, h1))
 
     reference_time = current_candle.get("t", series["1h"][-1].get("t"))
     pd = liquidity.pdh_pdl(series["1h"], reference_time)
@@ -369,18 +389,8 @@ def _scan_symbol(symbol, market, no_cache, progress):
         if poi_key in seen_poi_keys:
             continue
         seen_poi_keys.add(poi_key)
-        if ob.get("state") in ("MITIGATED", "INVALID"):
-            continue
         poi_candles = {"1day": d1, "4h": h4, "1h": h1}.get(ob.get("timeframe"), [])
-        ob_state = orderblocks.evaluate_ob_state(
-            ob, poi_candles)
-        ob["state"] = ob_state["state"]
-        if ob["state"] == "INVALID":
-            utils.log_file_only("{} {} {} INVALIDATED".format(
-                symbol, ob.get("timeframe", "POI"), ob.get("direction", "")))
-            continue
-        if ob["state"] == "MITIGATED":
-            continue
+        ob_state = {"state": ob.get("state")}
         # Active range, protected and targeted levels always come from 4h.
         structure_result = structure_h4
         active_context = _active_context(ob.get("direction"), structure_h4)
@@ -424,7 +434,7 @@ def _scan_symbol(symbol, market, no_cache, progress):
         candidate = _score_candidate(ob, bias_d1, bias_h4, ob.get("stack_count", 1),
                                      status_data, poi_candles,
                                      structure_result, current_price, market, session_info, pd, pw,
-                                     ob_h4 if ob.get("timeframe") == "4h" else ob_h1,
+                                     all_obs[ob.get("timeframe")],
                                      active_context, location, price_levels,
                                      own_structure={"1day": structure_d1, "4h": structure_h4,
                                                     "1h": structure_h1}.get(ob.get("timeframe")))
