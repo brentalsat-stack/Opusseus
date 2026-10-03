@@ -60,6 +60,26 @@ def _grade(item):
     return "-"
 
 
+def _round2(value):
+    """Display rounding for ratios; decisions (A/B, R:R threshold) keep the raw value."""
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return round(float(value), 2)
+    return value
+
+
+def _display_row(item):
+    row = dict(item)
+    for field in ("rr_tp1", "rr_tp2", "stop_pips_or_pct"):
+        if field in row:
+            row[field] = _round2(row[field])
+    return row
+
+
+def _level_price(value):
+    """Price of a structure level that may be a {"type","price","index"} record."""
+    return value.get("price") if isinstance(value, dict) else value
+
+
 def _format_price(value, market, symbol):
     """Round report prices to the market's requested display precision."""
     if value in (None, "") or isinstance(value, bool):
@@ -183,7 +203,7 @@ def _candidate_table(items, empty="Bu bölümde setup yok"):
             _md(item.get("symbol")), _md(item.get("direction")), _md(item.get("poi_rank")),
             _md(item.get("score")), _md(_grade(item)), _md(item.get("status")),
             _md(item.get("entry")), _md(item.get("stop")), _md(item.get("tp2")),
-            _md(item.get("rr_tp2")), _md(item.get("last_price")), _md(item.get("distance_pct"))))
+            _md(_round2(item.get("rr_tp2"))), _md(item.get("last_price")), _md(item.get("distance_pct"))))
     if not items:
         lines.append("| — | — | — | — | — | {} | — | — | — | — | — | — |".format(empty))
     return lines
@@ -237,21 +257,22 @@ def _build_markdown(results, meta, scan_time):
     lines.extend(["", "## Uzak POI'ler (giriş son fiyattan uzak; puana göre)", ""])
     lines.extend(_candidate_table(far, empty="Uzak POI yok"))
     lines.extend(["", "## Sembol başına HTF durumu", "",
-                  "| Sembol | D1 bias | 4H bias | Protected | Targeted | Konum |",
-                  "|---|---|---|---:|---:|---|"])
+                  "| Sembol | D1 bias | 4H bias | Protected | Targeted | D1 konum | 4H konum |",
+                  "|---|---|---|---:|---:|---|---|"])
     for item in symbols:
         if not isinstance(item, dict):
             item = {"symbol": str(item)}
         symbol = item.get("symbol", "")
         market = item.get("market", "forex" if "/" in str(symbol) or "XAU" in str(symbol).upper() else "crypto")
-        lines.append("| {} | {} | {} | {} | {} | {} |".format(
+        lines.append("| {} | {} | {} | {} | {} | {} | {} |".format(
             _md(item.get("symbol")), _md(item.get("htf_bias_d1", item.get("bias_d1"))),
             _md(item.get("htf_bias_h4", item.get("bias_h4"))),
-            _md(_format_price(item.get("protected", item.get("protected_level")), market, symbol)),
-            _md(_format_price(item.get("targeted", item.get("targeted_level")), market, symbol)),
+            _md(_format_price(_level_price(item.get("protected", item.get("protected_level"))), market, symbol)),
+            _md(_format_price(_level_price(item.get("targeted", item.get("targeted_level"))), market, symbol)),
+            _md(item.get("premium_discount_d1")),
             _md(item.get("premium_discount", item.get("price_position")))))
     if not symbols:
-        lines.append("| — | — | — | — | — | HTF verisi yok |")
+        lines.append("| — | — | — | — | — | — | HTF verisi yok |")
 
     errors = list(meta.get("errors", []) or [])
     warnings = list(meta.get("warnings", []) or [])
@@ -302,11 +323,12 @@ def write_reports(results, meta):
         writer = csv.DictWriter(handle, fieldnames=CSV_COLUMNS, extrasaction="ignore")
         writer.writeheader()
         for item in rows:
-            record = {column: _json_value(item.get(column)) for column in CSV_COLUMNS}
+            display = _display_row(item)
+            record = {column: _json_value(display.get(column)) for column in CSV_COLUMNS}
             record["actionable"] = "true" if item.get("actionable", True) else "false"
             writer.writerow(record)
     payload = {"scan_time_utc": scan_time.isoformat().replace("+00:00", "Z"),
-               "meta": meta, "results": rows}
+               "meta": meta, "results": [_display_row(item) for item in rows]}
     with open(json_path, "w", encoding="utf-8") as handle:
         json.dump(payload, handle, ensure_ascii=False, indent=2, default=str)
         handle.write("\n")
