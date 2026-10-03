@@ -200,6 +200,11 @@ def _build_markdown(results, meta, scan_time):
              _candidate_key(item) not in a_b_keys and
              (_grade(item) == "C" or _rr(item) is None or
               _rr(item) < float(config.MIN_RR_TP2) or _has_no_target(item))]
+    shown_keys = a_b_keys | {_candidate_key(item) for item in watch}
+    # rank 2+ actionable candidates that fit neither table above (e.g. a B-grade rank 2 with good R:R)
+    others = [item for item in results if int(item.get("poi_rank", 1)) >= 2
+              and _score(item) >= config.SCORE_MIN_REPORT
+              and _candidate_key(item) not in shown_keys]
     symbols = meta.get("symbols", meta.get("htf_status", [])) or []
     if isinstance(symbols, dict):
         symbols = [dict(value, symbol=key) if isinstance(value, dict) else {"symbol": key, "htf_status": value}
@@ -227,6 +232,8 @@ def _build_markdown(results, meta, scan_time):
     lines.extend(_candidate_table(a_b))
     lines.extend(["", "## İzleme listesi (C veya TP2 R:R eşiğinin altında)", ""])
     lines.extend(_candidate_table(watch))
+    lines.extend(["", "## Diğer adaylar (rank 2 ve sonrası)", ""])
+    lines.extend(_candidate_table(others, empty="Diğer aday yok"))
     lines.extend(["", "## Uzak POI'ler (giriş son fiyattan uzak; puana göre)", ""])
     lines.extend(_candidate_table(far, empty="Uzak POI yok"))
     lines.extend(["", "## Sembol başına HTF durumu", "",
