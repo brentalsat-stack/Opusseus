@@ -2,6 +2,7 @@
 import hashlib
 import json
 import os
+import re
 import time
 import urllib.parse
 
@@ -10,8 +11,48 @@ import utils
 
 
 _last_request_at = None
+_halt_reason = None
 INTERVAL_SECONDS = {"1day": 86400, "4h": 14400, "1h": 3600,
                     "15min": 900, "5min": 300, "1min": 60}
+
+
+class TwelveDataHalted(RuntimeError):
+    """401/403 or an exhausted credit limit: remaining requests are skipped."""
+
+
+def halt_reason():
+    """Reason of the circuit breaker, or None while requests are allowed."""
+    return _halt_reason
+
+
+def reset_halt():
+    global _halt_reason
+    _halt_reason = None
+
+
+def _error_code(exc):
+    """Extract an HTTP/API status code (401, 403, 429...) from an exception."""
+    code = getattr(exc, "api_code", None)
+    if code is None:
+        match = re.search(r"HTTP Error (\d{3})", str(exc))
+        code = match.group(1) if match else None
+    try:
+        return int(code)
+    except (TypeError, ValueError):
+        return None
+
+
+def _is_credit_error(exc):
+    text = str(exc).lower()
+    return (_error_code(exc) == 429 or "api credits" in text or "run out of" in text
+            or "rate limit" in text)
+
+
+def _halt(reason):
+    global _halt_reason
+    _halt_reason = reason
+    utils.log("Twelve Data devre kesici açıldı, kalan forex istekleri atlanacak: {}".format(reason))
+    raise TwelveDataHalted(reason)
 
 
 def pip_size(symbol):
@@ -99,7 +140,9 @@ def _request_series(symbol, interval, outputsize):
                 raise ValueError("API yanıtı JSON nesnesi değil")
             if payload.get("status") == "error" or "values" not in payload:
                 message = payload.get("message", payload.get("code", "geçersiz API yanıtı"))
-                raise ValueError("Twelve Data API hatası: {}".format(message))
+                error = ValueError("Twelve Data API hatası: {}".format(message))
+                error.api_code = payload.get("code")
+                raise error
             if not isinstance(payload["values"], list):
                 raise ValueError("Twelve Data values alanı liste değil")
             candles = []
@@ -111,9 +154,14 @@ def _request_series(symbol, interval, outputsize):
                 }))
             return sorted(candles, key=lambda candle: candle["t"])
         except Exception as exc:
+            code = _error_code(exc)
+            if code in (401, 403):
+                _halt("kimlik doğrulama hatası (HTTP/API {})".format(code))
             if attempt == 0:
                 time.sleep(float(config.REQUEST_DELAY_TD))
                 continue
+            if _is_credit_error(exc):
+                _halt("kredi limiti aşıldı")
             # Never include the request URL, since it contains the API key.
             utils.log("Twelve Data {} {} alınamadı: {}".format(symbol, interval, exc))
     return None
@@ -135,6 +183,8 @@ def get_series(symbol, interval, outputsize):
         utils.log("Twelve Data cache hit: {} {} ({} mum)".format(symbol, interval, len(cached)))
         return cached
 
+    if _halt_reason:
+        raise TwelveDataHalted(_halt_reason)
     candles = _request_series(symbol, interval, outputsize)
     if candles is None:
         return None

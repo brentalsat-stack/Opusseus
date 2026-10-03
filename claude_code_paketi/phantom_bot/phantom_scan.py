@@ -478,6 +478,7 @@ def run_scan(args):
     started = time.monotonic()
     scan_time = datetime.now(timezone.utc)
     utils.ensure_directories()
+    data_twelvedata.reset_halt()
     print("Uyarı: a-Shell'i tarama boyunca ön planda tutun.")
     errors = []
     selections = _symbol_list(args, errors)
@@ -489,6 +490,13 @@ def run_scan(args):
     for index, (symbol, market) in enumerate(selections, 1):
         def progress(tf, state):
             print("[{}/{}] {} {} {}".format(index, total, symbol, tf, state))
+        if market == "forex" and data_twelvedata.halt_reason():
+            message = utils.mask_secrets("{} atlandı: Twelve Data durduruldu ({})".format(
+                symbol, data_twelvedata.halt_reason()))
+            errors.append(message)
+            utils.log_file_only(message)
+            print("[{}/{}] {} atlandı (Twelve Data durduruldu)".format(index, total, symbol))
+            continue
         try:
             candidates, summary = _scan_symbol(symbol, market, args.no_cache, progress)
             all_results.extend(candidates)
