@@ -125,6 +125,14 @@ def _bias(result):
     return trend if trend in ("BULLISH", "BEARISH") else "UNDEFINED"
 
 
+def _position_label(result):
+    """Premium/Discount label of the latest close inside a structure's active range."""
+    position = result.get("price_position_pct")
+    if position is None:
+        return "UNDEFINED"
+    return "Discount" if position < 50 else "Premium"
+
+
 def _position_valid(direction, result):
     position = result.get("price_position_pct")
     if position is None:
@@ -433,6 +441,7 @@ def _scan_symbol(symbol, market, no_cache, progress):
 
     summary = {"symbol": symbol, "htf_bias_d1": bias_d1, "htf_bias_h4": bias_h4,
                "protected": structure_h4.get("protected"), "targeted": structure_h4.get("targeted"),
+               "premium_discount_d1": _position_label(structure_d1),
                "premium_discount": ("Discount" if structure_h4.get("price_position_pct") is not None and
                                     structure_h4["price_position_pct"] < 50 else "Premium" if
                                     structure_h4.get("price_position_pct") is not None else "UNDEFINED")}
