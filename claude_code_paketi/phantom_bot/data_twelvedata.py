@@ -10,6 +10,8 @@ import utils
 
 
 _last_request_at = None
+INTERVAL_SECONDS = {"1day": 86400, "4h": 14400, "1h": 3600,
+                    "15min": 900, "5min": 300, "1min": 60}
 
 
 def pip_size(symbol):
@@ -34,7 +36,13 @@ def _cache_ttl(interval):
     return int(config.TD_CACHE_TTL_SECONDS.get(interval, 0))
 
 
-def _read_cache(path, ttl):
+def _read_cache(path, ttl, interval=None):
+    """Cache hit only while the bar that was open at save time is still open.
+
+    A cached series can end with a partial (still forming) candle. Once the
+    interval boundary has passed, that candle would look closed but keep its
+    partial OHLC, so the cache is discarded at the boundary.
+    """
     if ttl <= 0:
         return None
     try:
@@ -42,6 +50,9 @@ def _read_cache(path, ttl):
             cached = json.load(handle)
         age = time.time() - float(cached["saved_at"])
         if age < 0 or age >= ttl:
+            return None
+        duration = INTERVAL_SECONDS.get(interval)
+        if duration and int(float(cached["saved_at"]) // duration) != int(time.time() // duration):
             return None
         candles = cached.get("candles")
         if not isinstance(candles, list) or not all(utils.validate_candle(candle) for candle in candles):
@@ -119,7 +130,7 @@ def get_series(symbol, interval, outputsize):
     utils.ensure_directories()
     ttl = _cache_ttl(interval)
     path = _cache_path(symbol, interval, outputsize)
-    cached = _read_cache(path, ttl)
+    cached = _read_cache(path, ttl, interval)
     if cached is not None:
         utils.log("Twelve Data cache hit: {} {} ({} mum)".format(symbol, interval, len(cached)))
         return cached
@@ -146,9 +157,7 @@ def get_series_with_last(symbol, interval, outputsize):
     candles = get_series(symbol, interval, outputsize)
     if candles is None:
         return None
-    durations = {"1day": 86400, "4h": 14400, "1h": 3600,
-                 "15min": 900, "5min": 300, "1min": 60}
-    duration = durations.get(str(interval))
+    duration = INTERVAL_SECONDS.get(str(interval))
     if duration is None:
         raise ValueError("Bilinmeyen Twelve Data aralığı: {}".format(interval))
     now = time.time()
