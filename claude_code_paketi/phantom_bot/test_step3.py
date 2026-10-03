@@ -1,8 +1,10 @@
 """Adım 3 Twelve Data canlı bağlantı ve cache gözlem testi."""
 import data_twelvedata
+import synth
 
 
 def main():
+    synth.isolate_dirs()  # günlükler ve önbellek gerçek klasöre yazılmasın
     for interval in ("1h", "1day"):
         candles = data_twelvedata.get_series("EUR/USD", interval, 3)
         if candles is None:
