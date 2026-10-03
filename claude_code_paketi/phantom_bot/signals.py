@@ -256,13 +256,26 @@ def levels(poi, direction=None, market="forex", symbol=None, spread_pips=None,
         tp2 = first_valid([pw_levels.get(week_key)])
 
     risk_distance = stop_distance
-    eligible_tp1 = []
+    warnings = []
+    tp1 = None
     if tp2 is not None and risk_distance > 0:
-        for price in normalize_levels(irl_levels):
+        # Unswept IRL first; a swept swing is only a fallback (TP1_SWEPT_LEVEL).
+        tiers = {False: [], True: []}
+        for value in irl_levels or []:
+            raw = value.get("price", value.get("level")) if isinstance(value, dict) else value
+            if raw is None:
+                continue
+            price = float(raw)
+            swept = bool(value.get("swept")) if isinstance(value, dict) else False
             between = entry < price < tp2 if direction == "BULLISH" else tp2 < price < entry
             if between and abs(price - entry) / risk_distance >= 1.0:
-                eligible_tp1.append(price)
-    tp1 = (min(eligible_tp1) if direction == "BULLISH" else max(eligible_tp1)) if eligible_tp1 else None
+                tiers[swept].append(price)
+        for swept in (False, True):
+            if tiers[swept]:
+                tp1 = min(tiers[swept]) if direction == "BULLISH" else max(tiers[swept])
+                if swept:
+                    warnings.append("TP1_SWEPT_LEVEL")
+                break
 
     def rr(target):
         if target is None or stop_distance == 0:
@@ -273,4 +286,4 @@ def levels(poi, direction=None, market="forex", symbol=None, spread_pips=None,
             "entry": entry, "stop": stop, "stop_distance": stop_distance,
             "stop_pips_or_pct": stop_metric, "stop_unit": stop_unit,
             "tp1": tp1, "tp2": tp2, "rr_tp1": rr(tp1), "rr_tp2": rr(tp2),
-            "warnings": ["NO_TARGET"] if tp2 is None else []}
+            "warnings": (["NO_TARGET"] if tp2 is None else []) + warnings}
