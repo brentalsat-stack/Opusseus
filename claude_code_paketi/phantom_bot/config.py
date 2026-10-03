@@ -100,6 +100,7 @@ FOREX_MIN_STOP_PIPS = 3.0  # Forex minimum stop mesafesi
 CRYPTO_STOP_BUFFER_ATR = 0.1  # Kripto stop tamponu ATR katsayısı
 CRYPTO_MIN_STOP_PCT = 0.25  # Kripto minimum stop yüzdesi
 MAX_POI_DISTANCE_ATR_D1 = 3.0  # POI girişinin son fiyata azami günlük ATR mesafesi
+ACTIONABLE_DISTANCE_PCT = {"crypto": 10.0, "forex": 1.0}  # Girişin son fiyata azami yüzde uzaklığı; aşanlar yalnızca "Uzak POI'ler" bölümünde görünür
 
 # Yerel zaman dilimi
 NEW_YORK_TIMEZONE = "America/New_York"  # New York saat dilimi adı

@@ -15,7 +15,7 @@ CSV_COLUMNS = [
     "status", "entry_type", "entry", "stop", "stop_pips_or_pct", "tp1", "tp2",
     "rr_tp1", "rr_tp2", "score", "grade", "premium_discount", "sweep", "fvg",
     "inducement", "session_tag", "warnings", "last_price", "poi_rank", "ltf_tf",
-    "entry_restriction", "distance_pct",
+    "entry_restriction", "distance_pct", "actionable",
 ]
 
 
@@ -90,6 +90,23 @@ def _distance_pct(item):
     return round(abs(entry - last) / last * 100.0, 2) if last else None
 
 
+def _market_of(item):
+    symbol = str(item.get("symbol", ""))
+    return str(item.get("market") or ("forex" if "/" in symbol or "XAU" in symbol.upper() else "crypto")).lower()
+
+
+def _is_actionable(item):
+    """True when the entry is within ACTIONABLE_DISTANCE_PCT of the last price.
+
+    Without a computable distance the candidate cannot be judged far, so it stays actionable.
+    """
+    distance = item.get("distance_pct")
+    limit = config.ACTIONABLE_DISTANCE_PCT.get(_market_of(item))
+    if distance in (None, "") or limit is None:
+        return True
+    return float(distance) <= float(limit)
+
+
 def _has_no_target(item):
     if item.get("tp2") is None:
         return True
@@ -137,6 +154,7 @@ def _limit_candidates(results, meta):
         for rank, item in enumerate(rows[:int(config.MAX_POI_PER_SYMBOL_DIR)], 1):
             item["poi_rank"] = rank
             item["distance_pct"] = _distance_pct(item)  # raw values, before price rounding
+            item["actionable"] = _is_actionable(item)
             item["grade"] = _grade(item) if _score(item) >= minimum else "-"
             symbol = item.get("symbol", "")
             market = item.get("market", "forex" if "/" in str(symbol) or "XAU" in str(symbol).upper() else "crypto")
@@ -157,7 +175,7 @@ def _md(value):
     return text
 
 
-def _candidate_table(items):
+def _candidate_table(items, empty="Bu bölümde setup yok"):
     lines = ["| Sembol | Yön | Rank | Puan | Not | Durum | Giriş | Stop | TP2 | R:R TP2 | Son fiyat | Mesafe % |",
              "|---|---|---:|---:|:---:|---|---:|---:|---:|---:|---:|---:|"]
     for item in items:
@@ -167,11 +185,14 @@ def _candidate_table(items):
             _md(item.get("entry")), _md(item.get("stop")), _md(item.get("tp2")),
             _md(item.get("rr_tp2")), _md(item.get("last_price")), _md(item.get("distance_pct"))))
     if not items:
-        lines.append("| — | — | — | — | — | Bu bölümde setup yok | — | — | — | — | — | — |")
+        lines.append("| — | — | — | — | — | {} | — | — | — | — | — | — |".format(empty))
     return lines
 
 
 def _build_markdown(results, meta, scan_time):
+    far = sorted((item for item in results if not item.get("actionable", True)),
+                 key=lambda item: -_score(item))
+    results = [item for item in results if item.get("actionable", True)]
     a_b = [item for item in results if _qualifies_ab(item)
            and int(item.get("poi_rank", 1)) == 1]
     a_b_keys = {_candidate_key(item) for item in a_b}
@@ -198,13 +219,16 @@ def _build_markdown(results, meta, scan_time):
              "- Tarama zamanı (UTC): {}".format(scan_time.strftime("%Y-%m-%d %H:%M:%S")),
              "- Piyasa: {}".format(_md(meta.get("market", "all"))),
              "- Taranan sembol: {}".format(_md(meta.get("symbols_scanned", len(symbols)))),
-             "- Setup adayı: {}".format(len(results)),
+             "- Setup adayı: {} (actionable: {}, uzak: {})".format(
+                 len(results) + len(far), len(results), len(far)),
              "- Hata sayısı: {}".format(_md(meta.get("error_count", len(meta.get("errors", []))))),
              "- Süre: {} sn".format(_md(meta.get("duration_seconds", "—"))), "",
              "## A/B setup'ları", ""]
     lines.extend(_candidate_table(a_b))
     lines.extend(["", "## İzleme listesi (C veya TP2 R:R eşiğinin altında)", ""])
     lines.extend(_candidate_table(watch))
+    lines.extend(["", "## Uzak POI'ler (giriş son fiyattan uzak; puana göre)", ""])
+    lines.extend(_candidate_table(far, empty="Uzak POI yok"))
     lines.extend(["", "## Sembol başına HTF durumu", "",
                   "| Sembol | D1 bias | 4H bias | Protected | Targeted | Konum |",
                   "|---|---|---|---:|---:|---|"])
@@ -271,7 +295,9 @@ def write_reports(results, meta):
         writer = csv.DictWriter(handle, fieldnames=CSV_COLUMNS, extrasaction="ignore")
         writer.writeheader()
         for item in rows:
-            writer.writerow({column: _json_value(item.get(column)) for column in CSV_COLUMNS})
+            record = {column: _json_value(item.get(column)) for column in CSV_COLUMNS}
+            record["actionable"] = "true" if item.get("actionable", True) else "false"
+            writer.writerow(record)
     payload = {"scan_time_utc": scan_time.isoformat().replace("+00:00", "Z"),
                "meta": meta, "results": rows}
     with open(json_path, "w", encoding="utf-8") as handle:

@@ -593,11 +593,12 @@ def run_scan(args):
             "symbols": summaries, "show_all": args.show_all}
     final_results = report._limit_candidates(all_results, meta)
     paths = report.write_reports(all_results, meta)
-    visible = final_results
-    counts = {grade: sum(1 for item in visible if item.get("grade") == grade)
+    actionable = [item for item in final_results if item.get("actionable", True)]
+    far_count = len(final_results) - len(actionable)
+    counts = {grade: sum(1 for item in actionable if item.get("grade") == grade)
               for grade in ("A", "B", "C")}
-    print("Tarama tamamlandı: {:.2f} sn — A: {}, B: {}, C: {}".format(
-        duration, counts["A"], counts["B"], counts["C"]))
+    print("Tarama tamamlandı: {:.2f} sn — A: {}, B: {}, C: {}, Uzak: {}".format(
+        duration, counts["A"], counts["B"], counts["C"], far_count))
     print("Rapor dosyaları:")
     for kind, path in paths.items():
         print("  {}: {}".format(kind, path))
