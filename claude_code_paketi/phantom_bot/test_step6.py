@@ -23,8 +23,9 @@ def test_ob_candle_and_refinement():
     result = {"events": [{"type": "BOS", "direction": "BULLISH", "index": 5, "origin_index": 0}]}
     blocks = orderblocks.find_order_blocks(candles, result)
     # The last bearish candle is index 2; because its next close does not
-    # clear its high, refinement moves to the preceding bearish candle index 1.
-    return bool(blocks) and blocks[0]["index"] == 1 and blocks[0]["displacement_index"] == 4
+    # clear its high, refinement moves forward to the candle immediately before
+    # the momentum (displacement) candle 4, i.e. index 3.
+    return bool(blocks) and blocks[0]["index"] == 3 and blocks[0]["displacement_index"] == 4
 
 
 def test_distal_close_invalid():

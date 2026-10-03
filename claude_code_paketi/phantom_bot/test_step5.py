@@ -76,11 +76,13 @@ def test_choch_then_second_bos():
                       event["direction"] == "BEARISH"), None)
         if choch is None:
             return False
-        before_confirmation = structure.analyze_structure(candles[:9])
+        before_confirmation = structure.analyze_structure(candles[:7])
+        after_confirmation = structure.analyze_structure(candles[:8])
         later_bearish = [event for event in full["events"] if event["direction"] == "BEARISH" and
                          event["type"] in ("BOS", "BOS_CONFIRMATION") and event["index"] > choch["index"]]
-        return (before_confirmation["trend"] == "CHOCH_BEARISH" and len(later_bearish) >= 2 and
-                full["trend"] == "BEARISH")
+        # CHoCH ilk kırılımdır; ardından tek bir BOS trendi çevirir (Adım 31'de ayrıca test edilir).
+        return (before_confirmation["trend"] == "CHOCH_BEARISH" and len(later_bearish) >= 1 and
+                after_confirmation["trend"] == "BEARISH" and full["trend"] == "BEARISH")
     finally:
         indicators.swing_points = original
 
@@ -106,7 +108,7 @@ def main():
     assert callable(indicators.swing_points)
     outcomes = [show("Fitil geçişi sweep, BOS değil", test_sweep_not_bos()),
                 show("Gövde kapanışı BOS", test_close_is_bos()),
-                show("CHoCH sonrası ikinci BOS trendi çevirir", test_choch_then_second_bos()),
+                show("CHoCH sonrası tek BOS trendi çevirir", test_choch_then_second_bos()),
                 show("Premium/discount yüzdesi", test_premium_discount_position())]
     if not all(outcomes):
         raise SystemExit(1)

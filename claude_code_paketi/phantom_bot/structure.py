@@ -85,7 +85,7 @@ def analyze_structure(candles):
                         event_type = "CHoCH"
                     elif choch_direction == "BULLISH":
                         bos_after_choch += 1
-                        if bos_after_choch >= 2:
+                        if bos_after_choch >= 1:
                             trend = "BULLISH"
                             choch_direction = None
                             event_type = "BOS_CONFIRMATION"
@@ -110,7 +110,7 @@ def analyze_structure(candles):
                         event_type = "CHoCH"
                     elif choch_direction == "BEARISH":
                         bos_after_choch += 1
-                        if bos_after_choch >= 2:
+                        if bos_after_choch >= 1:
                             trend = "BEARISH"
                             choch_direction = None
                             event_type = "BOS_CONFIRMATION"
