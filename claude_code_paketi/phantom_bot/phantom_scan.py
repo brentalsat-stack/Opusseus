@@ -181,6 +181,36 @@ def _distance_filter(entry, current_price, daily_candles):
     return distance <= config.MAX_POI_DISTANCE_ATR_D1 * daily_atr, daily_atr, distance
 
 
+def _liquidity_levels(candles):
+    """Unswept swing highs/lows plus EQH/EQL groups of a candle series."""
+    swings = indicators.swing_points(candles, config.SWING_N)
+    levels = [{"type": point["type"], "price": point["price"], "index": point["index"]}
+              for point in swings]
+    atr_value = indicators.atr(candles, config.ATR_PERIOD)
+    if atr_value:
+        for group in indicators.equal_levels(swings, atr_value, config.EQ_TOL_ATR):
+            levels.append({"type": group["type"], "price": group["price"],
+                           "index": max(group["indices"])})
+    unswept = []
+    for level in levels:
+        later = candles[int(level["index"]) + 1:]
+        if level["type"] in ("high", "EQH"):
+            swept = any(float(c["h"]) > level["price"] for c in later)
+        else:
+            swept = any(float(c["l"]) < level["price"] for c in later)
+        if not swept:
+            unswept.append(level)
+    return unswept
+
+
+def _irl_levels(candles, structure_result):
+    """Liquidity levels inside the active 4h range (internal range liquidity)."""
+    low, high = structure_result.get("range_low"), structure_result.get("range_high")
+    if low is None or high is None:
+        return []
+    return liquidity.classify_liquidity_levels(_liquidity_levels(candles), low, high)["IRL"]
+
+
 def _levels_from_structure(candles, result):
     swings = indicators.swing_points(candles, config.SWING_N)
     low, high = result.get("range_low"), result.get("range_high")
@@ -327,6 +357,7 @@ def _scan_symbol(symbol, market, no_cache, progress):
                "premium_discount": ("Discount" if structure_h4.get("price_position_pct") is not None and
                                     structure_h4["price_position_pct"] < 50 else "Premium" if
                                     structure_h4.get("price_position_pct") is not None else "UNDEFINED")}
+    irl_levels = _irl_levels(h4, structure_h4)
     candidates = []
     seen_poi_keys = set()
     for ob in stacked_pois:
@@ -367,7 +398,7 @@ def _scan_symbol(symbol, market, no_cache, progress):
             spread_pips=config.FOREX_SPREAD_PIPS.get(symbol, config.FOREX_SPREAD_PIPS["DEFAULT"]),
             atr_value=indicators.atr(poi_candles, config.ATR_PERIOD),
             current_price=current_price, entry_type=session_entry_type,
-            pd_levels=pd, pw_levels=pw,
+            irl_levels=irl_levels, pd_levels=pd, pw_levels=pw,
             targeted_level=active_context.get("targeted"))
         distance_ok, daily_atr, distance = _distance_filter(
             price_levels["entry"], current_price, d1)
