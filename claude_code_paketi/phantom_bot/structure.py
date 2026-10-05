@@ -29,6 +29,7 @@ def analyze_structure(candles):
     targeted = None
     active_high = None
     active_low = None
+    active_dir = None  # direction of the move the active range belongs to
     broken_levels = set()
     choch_direction = None
     bos_after_choch = 0
@@ -94,11 +95,15 @@ def analyze_structure(candles):
                 else:
                     trend = "BULLISH"
                     choch_direction = None
-                if origin is not None:
-                    protected = {"type": "low", "price": origin["price"], "index": origin["index"]}
-                targeted = {"type": "high", "price": level, "index": swing["index"]}
-                active_low = protected["price"] if protected else (origin["price"] if origin else None)
-                active_high = level
+                # A CHoCH is only the first break against the trend: the old trend's
+                # protected level, target and range stay in force until it is confirmed.
+                if event_type != "CHoCH":
+                    if origin is not None:
+                        protected = {"type": "low", "price": origin["price"], "index": origin["index"]}
+                    targeted = {"type": "high", "price": level, "index": swing["index"]}
+                    active_low = protected["price"] if protected else (origin["price"] if origin else None)
+                    active_high = level
+                    active_dir = "BULLISH"
             else:
                 origin = last_swing_high
                 event_type = "BOS"
@@ -119,11 +124,13 @@ def analyze_structure(candles):
                 else:
                     trend = "BEARISH"
                     choch_direction = None
-                if origin is not None:
-                    protected = {"type": "high", "price": origin["price"], "index": origin["index"]}
-                targeted = {"type": "low", "price": level, "index": swing["index"]}
-                active_high = protected["price"] if protected else (origin["price"] if origin else None)
-                active_low = level
+                if event_type != "CHoCH":
+                    if origin is not None:
+                        protected = {"type": "high", "price": origin["price"], "index": origin["index"]}
+                    targeted = {"type": "low", "price": level, "index": swing["index"]}
+                    active_high = protected["price"] if protected else (origin["price"] if origin else None)
+                    active_low = level
+                    active_dir = "BEARISH"
 
             last_bos = {"direction": direction, "level": level, "index": index,
                         "swing_index": swing["index"], "type": event_type}
@@ -132,8 +139,25 @@ def analyze_structure(candles):
                            "swing_index": swing["index"],
                            "origin_index": origin["index"] if origin else None})
 
-    # Active range is protected level to latest relevant extreme. Keep levels
-    # ordered even when a structure reversal's extrema arrived in reverse order.
+    # Active range: protected level -> latest swing extreme in the move's direction
+    # (uptrend: protected low -> highest confirmed swing high since it). The target
+    # is that range edge, so range, protected and targeted always agree.
+    if active_dir and protected is not None:
+        swings = indicators.swing_points(candles, SWING_N)
+        if active_dir == "BULLISH":
+            highs = [point for point in swings if point["type"] == "high"
+                     and point["index"] >= protected["index"]]
+            top = max(highs, key=lambda point: point["price"]) if highs else None
+            if top is not None and active_high is not None and top["price"] >= active_high:
+                active_high = top["price"]
+                targeted = {"type": "high", "price": top["price"], "index": top["index"]}
+        else:
+            lows = [point for point in swings if point["type"] == "low"
+                    and point["index"] >= protected["index"]]
+            bottom = min(lows, key=lambda point: point["price"]) if lows else None
+            if bottom is not None and active_low is not None and bottom["price"] <= active_low:
+                active_low = bottom["price"]
+                targeted = {"type": "low", "price": bottom["price"], "index": bottom["index"]}
     range_values = [value for value in (active_high, active_low) if value is not None]
     range_high = max(range_values) if len(range_values) == 2 else None
     range_low = min(range_values) if len(range_values) == 2 else None
@@ -142,13 +166,6 @@ def analyze_structure(candles):
     position_pct = None
     if range_high is not None and range_high > range_low:
         position_pct = (price - range_low) / (range_high - range_low) * 100
-
-    # Expose the latest confirmed swing as the current target in trend direction;
-    # the last BOS target remains available if no newer swing is confirmed.
-    if trend in ("BULLISH", "CHOCH_BEARISH") and last_swing_high is not None:
-        targeted = {"type": "high", "price": last_swing_high["price"], "index": last_swing_high["index"]}
-    elif trend in ("BEARISH", "CHOCH_BULLISH") and last_swing_low is not None:
-        targeted = {"type": "low", "price": last_swing_low["price"], "index": last_swing_low["index"]}
 
     return {"trend": trend, "last_bos": last_bos, "protected": protected,
             "targeted": targeted, "range_high": range_high, "range_low": range_low,

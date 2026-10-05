@@ -407,7 +407,10 @@ def _scan_symbol(symbol, market, no_cache, progress):
                     "spread_hour": spread_hour}
 
     summary = {"symbol": symbol, "htf_bias_d1": bias_d1, "htf_bias_h4": bias_h4,
-               "protected": structure_h4.get("protected"), "targeted": structure_h4.get("targeted"),
+               # With an UNDEFINED 4h bias (CHoCH in progress, no trend) the levels are not
+               # a valid protected/targeted pair, so the summary shows "—" instead.
+               "protected": structure_h4.get("protected") if bias_h4 != "UNDEFINED" else None,
+               "targeted": structure_h4.get("targeted") if bias_h4 != "UNDEFINED" else None,
                "premium_discount_d1": _position_label(structure_d1),
                "premium_discount": ("Discount" if structure_h4.get("price_position_pct") is not None and
                                     structure_h4["price_position_pct"] < 50 else "Premium" if
