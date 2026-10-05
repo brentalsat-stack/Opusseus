@@ -1,0 +1,1303 @@
+{
+  "scan_time_utc": "2026-10-02T19:05:20.480262Z",
+  "meta": {
+    "scan_time_utc": "2026-10-02 19:05:20.480262+00:00",
+    "market": "all",
+    "symbols_scanned": 44,
+    "duration_seconds": 435.95,
+    "error_count": 0,
+    "errors": [],
+    "warnings": [],
+    "symbols": [
+      {
+        "symbol": "EUR/USD",
+        "htf_bias_d1": "BEARISH",
+        "htf_bias_h4": "BEARISH",
+        "protected": {
+          "type": "high",
+          "price": 1.13797,
+          "index": 146
+        },
+        "targeted": {
+          "type": "low",
+          "price": 1.12159,
+          "index": 154
+        },
+        "premium_discount": "Discount"
+      },
+      {
+        "symbol": "GBP/USD",
+        "htf_bias_d1": "BEARISH",
+        "htf_bias_h4": "BEARISH",
+        "protected": {
+          "type": "high",
+          "price": 1.32726,
+          "index": 150
+        },
+        "targeted": {
+          "type": "low",
+          "price": 1.31814,
+          "index": 154
+        },
+        "premium_discount": "Discount"
+      },
+      {
+        "symbol": "GBP/JPY",
+        "htf_bias_d1": "UNDEFINED",
+        "htf_bias_h4": "UNDEFINED",
+        "protected": {
+          "type": "low",
+          "price": 206.88927,
+          "index": 144
+        },
+        "targeted": {
+          "type": "low",
+          "price": 207.66779,
+          "index": 153
+        },
+        "premium_discount": "Premium"
+      },
+      {
+        "symbol": "EUR/JPY",
+        "htf_bias_d1": "BULLISH",
+        "htf_bias_h4": "BEARISH",
+        "protected": {
+          "type": "high",
+          "price": 179.33056,
+          "index": 151
+        },
+        "targeted": {
+          "type": "low",
+          "price": 176.79452,
+          "index": 153
+        },
+        "premium_discount": "Discount"
+      },
+      {
+        "symbol": "AUD/USD",
+        "htf_bias_d1": "BEARISH",
+        "htf_bias_h4": "UNDEFINED",
+        "protected": {
+          "type": "low",
+          "price": 0.69049,
+          "index": 153
+        },
+        "targeted": {
+          "type": "low",
+          "price": 0.69049,
+          "index": 153
+        },
+        "premium_discount": "Premium"
+      },
+      {
+        "symbol": "NZD/USD",
+        "htf_bias_d1": "BEARISH",
+        "htf_bias_h4": "BEARISH",
+        "protected": {
+          "type": "high",
+          "price": 0.56645,
+          "index": 146
+        },
+        "targeted": {
+          "type": "low",
+          "price": 0.55866,
+          "index": 156
+        },
+        "premium_discount": "Discount"
+      },
+      {
+        "symbol": "USD/CAD",
+        "htf_bias_d1": "UNDEFINED",
+        "htf_bias_h4": "BULLISH",
+        "protected": {
+          "type": "low",
+          "price": 1.41763,
+          "index": 142
+        },
+        "targeted": {
+          "type": "high",
+          "price": 1.42636,
+          "index": 153
+        },
+        "premium_discount": "Premium"
+      },
+      {
+        "symbol": "EUR/GBP",
+        "htf_bias_d1": "BEARISH",
+        "htf_bias_h4": "UNDEFINED",
+        "protected": {
+          "type": "high",
+          "price": 0.85859,
+          "index": 139
+        },
+        "targeted": {
+          "type": "high",
+          "price": 0.85277,
+          "index": 157
+        },
+        "premium_discount": "Discount"
+      },
+      {
+        "symbol": "XAU/USD",
+        "htf_bias_d1": "UNDEFINED",
+        "htf_bias_h4": "UNDEFINED",
+        "protected": {
+          "type": "low",
+          "price": 4134.45239,
+          "index": 156
+        },
+        "targeted": {
+          "type": "low",
+          "price": 4134.45239,
+          "index": 156
+        },
+        "premium_discount": "Discount"
+      },
+      {
+        "symbol": "BTCUSDT",
+        "htf_bias_d1": "BULLISH",
+        "htf_bias_h4": "BULLISH",
+        "protected": {
+          "type": "low",
+          "price": 83186.0,
+          "index": 152
+        },
+        "targeted": {
+          "type": "high",
+          "price": 85649.95,
+          "index": 147
+        },
+        "premium_discount": "Premium"
+      },
+      {
+        "symbol": "ETHUSDT",
+        "htf_bias_d1": "UNDEFINED",
+        "htf_bias_h4": "BULLISH",
+        "protected": {
+          "type": "low",
+          "price": 2673.13,
+          "index": 152
+        },
+        "targeted": {
+          "type": "high",
+          "price": 2722.0,
+          "index": 151
+        },
+        "premium_discount": "Discount"
+      },
+      {
+        "symbol": "SOLUSDT",
+        "htf_bias_d1": "BULLISH",
+        "htf_bias_h4": "UNDEFINED",
+        "protected": {
+          "type": "low",
+          "price": 116.73,
+          "index": 153
+        },
+        "targeted": {
+          "type": "low",
+          "price": 116.73,
+          "index": 153
+        },
+        "premium_discount": "Premium"
+      },
+      {
+        "symbol": "XRPUSDT",
+        "htf_bias_d1": "UNDEFINED",
+        "htf_bias_h4": "UNDEFINED",
+        "protected": {
+          "type": "low",
+          "price": 1.4744,
+          "index": 153
+        },
+        "targeted": {
+          "type": "low",
+          "price": 1.4744,
+          "index": 153
+        },
+        "premium_discount": "Premium"
+      },
+      {
+        "symbol": "ZECUSDT",
+        "htf_bias_d1": "BULLISH",
+        "htf_bias_h4": "UNDEFINED",
+        "protected": {
+          "type": "high",
+          "price": 1449.75,
+          "index": 151
+        },
+        "targeted": {
+          "type": "high",
+          "price": 1449.75,
+          "index": 151
+        },
+        "premium_discount": "Discount"
+      },
+      {
+        "symbol": "NEARUSDT",
+        "htf_bias_d1": "BULLISH",
+        "htf_bias_h4": "BULLISH",
+        "protected": {
+          "type": "low",
+          "price": 4.548,
+          "index": 138
+        },
+        "targeted": {
+          "type": "high",
+          "price": 5.066,
+          "index": 157
+        },
+        "premium_discount": "Discount"
+      },
+      {
+        "symbol": "BNBUSDT",
+        "htf_bias_d1": "BULLISH",
+        "htf_bias_h4": "BULLISH",
+        "protected": {
+          "type": "low",
+          "price": 763.02,
+          "index": 151
+        },
+        "targeted": {
+          "type": "high",
+          "price": 772.5,
+          "index": 151
+        },
+        "premium_discount": "Premium"
+      },
+      {
+        "symbol": "SUIUSDT",
+        "htf_bias_d1": "BULLISH",
+        "htf_bias_h4": "UNDEFINED",
+        "protected": {
+          "type": "low",
+          "price": 1.127,
+          "index": 142
+        },
+        "targeted": {
+          "type": "low",
+          "price": 1.1271,
+          "index": 153
+        },
+        "premium_discount": "Premium"
+      },
+      {
+        "symbol": "DOGEUSDT",
+        "htf_bias_d1": "BULLISH",
+        "htf_bias_h4": "UNDEFINED",
+        "protected": {
+          "type": "low",
+          "price": 0.0935,
+          "index": 152
+        },
+        "targeted": {
+          "type": "low",
+          "price": 0.09316,
+          "index": 156
+        },
+        "premium_discount": "Premium"
+      },
+      {
+        "symbol": "WLDUSDT",
+        "htf_bias_d1": "BULLISH",
+        "htf_bias_h4": "BULLISH",
+        "protected": {
+          "type": "low",
+          "price": 0.4807,
+          "index": 153
+        },
+        "targeted": {
+          "type": "high",
+          "price": 0.5712,
+          "index": 147
+        },
+        "premium_discount": "Premium"
+      },
+      {
+        "symbol": "QNTUSDT",
+        "htf_bias_d1": "UNDEFINED",
+        "htf_bias_h4": "UNDEFINED",
+        "protected": {
+          "type": "high",
+          "price": 329.0,
+          "index": 146
+        },
+        "targeted": {
+          "type": "high",
+          "price": 307.0,
+          "index": 152
+        },
+        "premium_discount": "Discount"
+      },
+      {
+        "symbol": "AVAXUSDT",
+        "htf_bias_d1": "UNDEFINED",
+        "htf_bias_h4": "UNDEFINED",
+        "protected": {
+          "type": "high",
+          "price": 12.008,
+          "index": 141
+        },
+        "targeted": {
+          "type": "high",
+          "price": 11.182,
+          "index": 152
+        },
+        "premium_discount": "Discount"
+      },
+      {
+        "symbol": "AAVEUSDT",
+        "htf_bias_d1": "BULLISH",
+        "htf_bias_h4": "BULLISH",
+        "protected": {
+          "type": "low",
+          "price": 157.59,
+          "index": 148
+        },
+        "targeted": {
+          "type": "high",
+          "price": 187.5,
+          "index": 157
+        },
+        "premium_discount": "Premium"
+      },
+      {
+        "symbol": "PUMPUSDT",
+        "htf_bias_d1": "UNDEFINED",
+        "htf_bias_h4": "BULLISH",
+        "protected": {
+          "type": "low",
+          "price": 0.004678,
+          "index": 138
+        },
+        "targeted": {
+          "type": "high",
+          "price": 0.006158,
+          "index": 157
+        },
+        "premium_discount": "Premium"
+      },
+      {
+        "symbol": "ADAUSDT",
+        "htf_bias_d1": "UNDEFINED",
+        "htf_bias_h4": "UNDEFINED",
+        "protected": {
+          "type": "low",
+          "price": 0.243,
+          "index": 153
+        },
+        "targeted": {
+          "type": "low",
+          "price": 0.244,
+          "index": 156
+        },
+        "premium_discount": "Premium"
+      },
+      {
+        "symbol": "SANDUSDT",
+        "htf_bias_d1": "UNDEFINED",
+        "htf_bias_h4": "UNDEFINED",
+        "protected": {
+          "type": "low",
+          "price": 0.04267,
+          "index": 142
+        },
+        "targeted": {
+          "type": "low",
+          "price": 0.04238,
+          "index": 153
+        },
+        "premium_discount": "Premium"
+      },
+      {
+        "symbol": "ENAUSDT",
+        "htf_bias_d1": "BULLISH",
+        "htf_bias_h4": "UNDEFINED",
+        "protected": {
+          "type": "high",
+          "price": 0.2783,
+          "index": 151
+        },
+        "targeted": {
+          "type": "high",
+          "price": 0.2783,
+          "index": 151
+        },
+        "premium_discount": "Discount"
+      },
+      {
+        "symbol": "UNIUSDT",
+        "htf_bias_d1": "BULLISH",
+        "htf_bias_h4": "UNDEFINED",
+        "protected": {
+          "type": "high",
+          "price": 10.2,
+          "index": 127
+        },
+        "targeted": {
+          "type": "high",
+          "price": 9.319,
+          "index": 157
+        },
+        "premium_discount": "Discount"
+      },
+      {
+        "symbol": "LINKUSDT",
+        "htf_bias_d1": "BULLISH",
+        "htf_bias_h4": "UNDEFINED",
+        "protected": {
+          "type": "high",
+          "price": 15.777,
+          "index": 138
+        },
+        "targeted": {
+          "type": "high",
+          "price": 14.652,
+          "index": 157
+        },
+        "premium_discount": "Discount"
+      },
+      {
+        "symbol": "TAOUSDT",
+        "htf_bias_d1": "BULLISH",
+        "htf_bias_h4": "BULLISH",
+        "protected": {
+          "type": "low",
+          "price": 294.6,
+          "index": 135
+        },
+        "targeted": {
+          "type": "high",
+          "price": 312.4,
+          "index": 151
+        },
+        "premium_discount": "Premium"
+      },
+      {
+        "symbol": "PEPEUSDT",
+        "htf_bias_d1": "UNDEFINED",
+        "htf_bias_h4": "BULLISH",
+        "protected": {
+          "type": "low",
+          "price": 4.23e-06,
+          "index": 148
+        },
+        "targeted": {
+          "type": "high",
+          "price": 4.75e-06,
+          "index": 157
+        },
+        "premium_discount": "Premium"
+      },
+      {
+        "symbol": "XAUTUSDT",
+        "htf_bias_d1": "UNDEFINED",
+        "htf_bias_h4": "BEARISH",
+        "protected": {
+          "type": "high",
+          "price": 4190.89,
+          "index": 151
+        },
+        "targeted": {
+          "type": "low",
+          "price": 4137.23,
+          "index": 156
+        },
+        "premium_discount": "Discount"
+      },
+      {
+        "symbol": "MOVRUSDT",
+        "htf_bias_d1": "BULLISH",
+        "htf_bias_h4": "BULLISH",
+        "protected": {
+          "type": "low",
+          "price": 0.932,
+          "index": 138
+        },
+        "targeted": {
+          "type": "high",
+          "price": 3.34,
+          "index": 154
+        },
+        "premium_discount": "Premium"
+      },
+      {
+        "symbol": "LTCUSDT",
+        "htf_bias_d1": "UNDEFINED",
+        "htf_bias_h4": "UNDEFINED",
+        "protected": {
+          "type": "low",
+          "price": 65.63,
+          "index": 148
+        },
+        "targeted": {
+          "type": "low",
+          "price": 66.55,
+          "index": 153
+        },
+        "premium_discount": "Premium"
+      },
+      {
+        "symbol": "HYPEUSDT",
+        "htf_bias_d1": "UNDEFINED",
+        "htf_bias_h4": "UNDEFINED",
+        "protected": {
+          "type": "low",
+          "price": 86.54,
+          "index": 45
+        },
+        "targeted": {
+          "type": "low",
+          "price": 86.54,
+          "index": 45
+        },
+        "premium_discount": "Premium"
+      },
+      {
+        "symbol": "ONDOUSDT",
+        "htf_bias_d1": "UNDEFINED",
+        "htf_bias_h4": "UNDEFINED",
+        "protected": {
+          "type": "high",
+          "price": 0.5315,
+          "index": 140
+        },
+        "targeted": {
+          "type": "high",
+          "price": 0.5133,
+          "index": 151
+        },
+        "premium_discount": "Discount"
+      },
+      {
+        "symbol": "ZROUSDT",
+        "htf_bias_d1": "UNDEFINED",
+        "htf_bias_h4": "BULLISH",
+        "protected": {
+          "type": "low",
+          "price": 1.623,
+          "index": 152
+        },
+        "targeted": {
+          "type": "high",
+          "price": 1.885,
+          "index": 145
+        },
+        "premium_discount": "Premium"
+      },
+      {
+        "symbol": "TRUMPUSDT",
+        "htf_bias_d1": "UNDEFINED",
+        "htf_bias_h4": "UNDEFINED",
+        "protected": {
+          "type": "low",
+          "price": 2.016,
+          "index": 148
+        },
+        "targeted": {
+          "type": "low",
+          "price": 2.022,
+          "index": 152
+        },
+        "premium_discount": "Premium"
+      },
+      {
+        "symbol": "CRCLBUSDT",
+        "htf_bias_d1": "UNDEFINED",
+        "htf_bias_h4": "UNDEFINED",
+        "protected": {
+          "type": "low",
+          "price": 81.5,
+          "index": 153
+        },
+        "targeted": {
+          "type": "low",
+          "price": 81.5,
+          "index": 153
+        },
+        "premium_discount": "Discount"
+      },
+      {
+        "symbol": "GTCUSDT",
+        "htf_bias_d1": "UNDEFINED",
+        "htf_bias_h4": "BULLISH",
+        "protected": {
+          "type": "low",
+          "price": 0.09255,
+          "index": 148
+        },
+        "targeted": {
+          "type": "high",
+          "price": 0.184,
+          "index": 156
+        },
+        "premium_discount": "Premium"
+      },
+      {
+        "symbol": "PAXGUSDT",
+        "htf_bias_d1": "UNDEFINED",
+        "htf_bias_h4": "BEARISH",
+        "protected": {
+          "type": "high",
+          "price": 4194.6,
+          "index": 154
+        },
+        "targeted": {
+          "type": "low",
+          "price": 4148.0,
+          "index": 156
+        },
+        "premium_discount": "Discount"
+      },
+      {
+        "symbol": "TRXUSDT",
+        "htf_bias_d1": "BULLISH",
+        "htf_bias_h4": "BEARISH",
+        "protected": {
+          "type": "high",
+          "price": 0.3409,
+          "index": 147
+        },
+        "targeted": {
+          "type": "low",
+          "price": 0.334,
+          "index": 157
+        },
+        "premium_discount": "Discount"
+      },
+      {
+        "symbol": "UUSDT",
+        "htf_bias_d1": "UNDEFINED",
+        "htf_bias_h4": "BULLISH",
+        "protected": {
+          "type": "low",
+          "price": 1.0,
+          "index": 77
+        },
+        "targeted": {
+          "type": "high",
+          "price": 1.0,
+          "index": 144
+        },
+        "premium_discount": "UNDEFINED"
+      },
+      {
+        "symbol": "SPCXBUSDT",
+        "htf_bias_d1": "BULLISH",
+        "htf_bias_h4": "UNDEFINED",
+        "protected": {
+          "type": "low",
+          "price": 148.09,
+          "index": 155
+        },
+        "targeted": {
+          "type": "low",
+          "price": 148.09,
+          "index": 155
+        },
+        "premium_discount": "Premium"
+      },
+      {
+        "symbol": "SNDKBUSDT",
+        "htf_bias_d1": "UNDEFINED",
+        "htf_bias_h4": "BULLISH",
+        "protected": {
+          "type": "low",
+          "price": 1716.87,
+          "index": 145
+        },
+        "targeted": {
+          "type": "high",
+          "price": 1801.4,
+          "index": 154
+        },
+        "premium_discount": "Premium"
+      }
+    ],
+    "show_all": false
+  },
+  "results": [
+    {
+      "market": "crypto",
+      "symbol": "WLDUSDT",
+      "direction": "BULLISH",
+      "htf_bias_d1": "BULLISH",
+      "htf_bias_h4": "BULLISH",
+      "poi_tf": "4h",
+      "poi_stack": [
+        "1day",
+        "4h",
+        "1h"
+      ],
+      "poi_proximal": 0.5238,
+      "poi_distal": 0.4807,
+      "poi_eq": 0.50225,
+      "poi_state": "FRESH",
+      "status": "WAITING_TAP",
+      "entry_type": "risk",
+      "entry": 0.4807,
+      "stop": 0.477931,
+      "stop_pips_or_pct": 0.5759457933371028,
+      "tp1": null,
+      "tp2": 0.5712,
+      "rr_tp1": null,
+      "rr_tp2": 32.688338493291766,
+      "score": 85,
+      "grade": "A",
+      "score_breakdown": [
+        {
+          "criterion": "htf_alignment",
+          "label": "HTF yön uyumu",
+          "points": 20
+        },
+        {
+          "criterion": "stack_3tf",
+          "label": "3 TF OB çakışması",
+          "points": 20
+        },
+        {
+          "criterion": "fresh_ob",
+          "label": "Dokunulmamış OB",
+          "points": 8
+        },
+        {
+          "criterion": "extreme_ob",
+          "label": "EXTREME OB",
+          "points": 7
+        },
+        {
+          "criterion": "mitigated_left_zone",
+          "label": "Soldaki S/D veya OB mitigation",
+          "points": 4
+        },
+        {
+          "criterion": "fvg",
+          "label": "Bacakta FVG",
+          "points": 6
+        },
+        {
+          "criterion": "major_structure_break",
+          "label": "Majör yapı kırılımı",
+          "points": 8
+        },
+        {
+          "criterion": "premium_discount",
+          "label": "Doğru premium/discount tarafı",
+          "points": 7
+        },
+        {
+          "criterion": "preferred_session",
+          "label": "London/NY teyit seansı",
+          "points": 5
+        }
+      ],
+      "premium_discount": "Discount",
+      "sweep": false,
+      "fvg": true,
+      "inducement": false,
+      "session_tag": "NYPM",
+      "warnings": [],
+      "last_price": 0.5362,
+      "ltf_tf": null,
+      "entry_restriction": "",
+      "protected": 0.4807,
+      "targeted": 0.5712,
+      "range_low": 0.4807,
+      "range_high": 0.5712,
+      "poi_rank": 1
+    },
+    {
+      "market": "forex",
+      "symbol": "EUR/USD",
+      "direction": "BEARISH",
+      "htf_bias_d1": "BEARISH",
+      "htf_bias_h4": "BEARISH",
+      "poi_tf": "4h",
+      "poi_stack": [
+        "4h",
+        "1h"
+      ],
+      "poi_proximal": 1.13493,
+      "poi_distal": 1.13797,
+      "poi_eq": 1.13645,
+      "poi_state": "FRESH",
+      "status": "WAITING_TAP",
+      "entry_type": "risk",
+      "entry": 1.13493,
+      "stop": 1.13827,
+      "stop_pips_or_pct": 33.39999999999898,
+      "tp1": null,
+      "tp2": 1.12159,
+      "rr_tp1": null,
+      "rr_tp2": 3.994011976047998,
+      "score": 82,
+      "grade": "A",
+      "score_breakdown": [
+        {
+          "criterion": "htf_alignment",
+          "label": "HTF yön uyumu",
+          "points": 20
+        },
+        {
+          "criterion": "stack_2tf",
+          "label": "2 TF OB çakışması",
+          "points": 12
+        },
+        {
+          "criterion": "fresh_ob",
+          "label": "Dokunulmamış OB",
+          "points": 8
+        },
+        {
+          "criterion": "extreme_ob",
+          "label": "EXTREME OB",
+          "points": 7
+        },
+        {
+          "criterion": "mitigated_left_zone",
+          "label": "Soldaki S/D veya OB mitigation",
+          "points": 4
+        },
+        {
+          "criterion": "fvg",
+          "label": "Bacakta FVG",
+          "points": 6
+        },
+        {
+          "criterion": "major_structure_break",
+          "label": "Majör yapı kırılımı",
+          "points": 8
+        },
+        {
+          "criterion": "premium_discount",
+          "label": "Doğru premium/discount tarafı",
+          "points": 7
+        },
+        {
+          "criterion": "corrective_return",
+          "label": "Corrective dönüş",
+          "points": 5
+        },
+        {
+          "criterion": "preferred_session",
+          "label": "London/NY teyit seansı",
+          "points": 5
+        }
+      ],
+      "premium_discount": "Premium",
+      "sweep": false,
+      "fvg": true,
+      "inducement": false,
+      "session_tag": "NYPM",
+      "warnings": [],
+      "last_price": 1.12501,
+      "ltf_tf": null,
+      "entry_restriction": "",
+      "protected": 1.13797,
+      "targeted": 1.12159,
+      "range_low": 1.13097,
+      "range_high": 1.13797,
+      "poi_rank": 1
+    },
+    {
+      "market": "crypto",
+      "symbol": "WLDUSDT",
+      "direction": "BULLISH",
+      "htf_bias_d1": "BULLISH",
+      "htf_bias_h4": "BULLISH",
+      "poi_tf": "1h",
+      "poi_stack": [
+        "1day",
+        "4h",
+        "1h"
+      ],
+      "poi_proximal": 0.5159,
+      "poi_distal": 0.5088,
+      "poi_eq": 0.51235,
+      "poi_state": "FRESH",
+      "status": "WAITING_TAP",
+      "entry_type": "risk",
+      "entry": 0.5088,
+      "stop": 0.506985,
+      "stop_pips_or_pct": 0.3567216981132097,
+      "tp1": null,
+      "tp2": 0.5712,
+      "rr_tp1": null,
+      "rr_tp2": 34.380165289256,
+      "score": 75,
+      "grade": "A",
+      "score_breakdown": [
+        {
+          "criterion": "htf_alignment",
+          "label": "HTF yön uyumu",
+          "points": 20
+        },
+        {
+          "criterion": "stack_3tf",
+          "label": "3 TF OB çakışması",
+          "points": 20
+        },
+        {
+          "criterion": "fresh_ob",
+          "label": "Dokunulmamış OB",
+          "points": 8
+        },
+        {
+          "criterion": "mitigated_left_zone",
+          "label": "Soldaki S/D veya OB mitigation",
+          "points": 4
+        },
+        {
+          "criterion": "fvg",
+          "label": "Bacakta FVG",
+          "points": 6
+        },
+        {
+          "criterion": "premium_discount",
+          "label": "Doğru premium/discount tarafı",
+          "points": 7
+        },
+        {
+          "criterion": "corrective_return",
+          "label": "Corrective dönüş",
+          "points": 5
+        },
+        {
+          "criterion": "preferred_session",
+          "label": "London/NY teyit seansı",
+          "points": 5
+        }
+      ],
+      "premium_discount": "Discount",
+      "sweep": false,
+      "fvg": true,
+      "inducement": false,
+      "session_tag": "NYPM",
+      "warnings": [],
+      "last_price": 0.5362,
+      "ltf_tf": null,
+      "entry_restriction": "",
+      "protected": 0.4807,
+      "targeted": 0.5712,
+      "range_low": 0.4807,
+      "range_high": 0.5712,
+      "poi_rank": 2
+    },
+    {
+      "market": "forex",
+      "symbol": "EUR/USD",
+      "direction": "BEARISH",
+      "htf_bias_d1": "BEARISH",
+      "htf_bias_h4": "BEARISH",
+      "poi_tf": "1h",
+      "poi_stack": [
+        "4h",
+        "1h"
+      ],
+      "poi_proximal": 1.13473,
+      "poi_distal": 1.13667,
+      "poi_eq": 1.1357,
+      "poi_state": "FRESH",
+      "status": "WAITING_TAP",
+      "entry_type": "risk",
+      "entry": 1.13473,
+      "stop": 1.13697,
+      "stop_pips_or_pct": 22.400000000000198,
+      "tp1": null,
+      "tp2": 1.12159,
+      "rr_tp1": null,
+      "rr_tp2": 5.866071428571345,
+      "score": 61,
+      "grade": "B",
+      "score_breakdown": [
+        {
+          "criterion": "htf_alignment",
+          "label": "HTF yön uyumu",
+          "points": 20
+        },
+        {
+          "criterion": "stack_2tf",
+          "label": "2 TF OB çakışması",
+          "points": 12
+        },
+        {
+          "criterion": "fresh_ob",
+          "label": "Dokunulmamış OB",
+          "points": 8
+        },
+        {
+          "criterion": "mitigated_left_zone",
+          "label": "Soldaki S/D veya OB mitigation",
+          "points": 4
+        },
+        {
+          "criterion": "premium_discount",
+          "label": "Doğru premium/discount tarafı",
+          "points": 7
+        },
+        {
+          "criterion": "corrective_return",
+          "label": "Corrective dönüş",
+          "points": 5
+        },
+        {
+          "criterion": "preferred_session",
+          "label": "London/NY teyit seansı",
+          "points": 5
+        }
+      ],
+      "premium_discount": "Premium",
+      "sweep": false,
+      "fvg": false,
+      "inducement": false,
+      "session_tag": "NYPM",
+      "warnings": [],
+      "last_price": 1.12501,
+      "ltf_tf": null,
+      "entry_restriction": "",
+      "protected": 1.13797,
+      "targeted": 1.12159,
+      "range_low": 1.13097,
+      "range_high": 1.13797,
+      "poi_rank": 2
+    },
+    {
+      "market": "forex",
+      "symbol": "NZD/USD",
+      "direction": "BEARISH",
+      "htf_bias_d1": "BEARISH",
+      "htf_bias_h4": "BEARISH",
+      "poi_tf": "1h",
+      "poi_stack": [
+        "4h",
+        "1h"
+      ],
+      "poi_proximal": 0.56419,
+      "poi_distal": 0.56645,
+      "poi_eq": 0.56532,
+      "poi_state": "TAPPED",
+      "status": "ENTRY2_READY",
+      "entry_type": "risk",
+      "entry": 0.56419,
+      "stop": 0.56675,
+      "stop_pips_or_pct": 25.600000000000065,
+      "tp1": null,
+      "tp2": 0.55866,
+      "rr_tp1": null,
+      "rr_tp2": 2.1601562499999645,
+      "score": 55,
+      "grade": "C",
+      "score_breakdown": [
+        {
+          "criterion": "htf_alignment",
+          "label": "HTF yön uyumu",
+          "points": 20
+        },
+        {
+          "criterion": "stack_2tf",
+          "label": "2 TF OB çakışması",
+          "points": 12
+        },
+        {
+          "criterion": "extreme_ob",
+          "label": "EXTREME OB",
+          "points": 7
+        },
+        {
+          "criterion": "mitigated_left_zone",
+          "label": "Soldaki S/D veya OB mitigation",
+          "points": 4
+        },
+        {
+          "criterion": "premium_discount",
+          "label": "Doğru premium/discount tarafı",
+          "points": 7
+        },
+        {
+          "criterion": "preferred_session",
+          "label": "London/NY teyit seansı",
+          "points": 5
+        }
+      ],
+      "premium_discount": "Premium",
+      "sweep": false,
+      "fvg": false,
+      "inducement": false,
+      "session_tag": "NYPM",
+      "warnings": [],
+      "last_price": 0.56126,
+      "ltf_tf": "5m",
+      "entry_restriction": "",
+      "protected": 0.56645,
+      "targeted": 0.55866,
+      "range_low": 0.56262,
+      "range_high": 0.56645,
+      "poi_rank": 1
+    },
+    {
+      "market": "crypto",
+      "symbol": "ZROUSDT",
+      "direction": "BULLISH",
+      "htf_bias_d1": "UNDEFINED",
+      "htf_bias_h4": "BULLISH",
+      "poi_tf": "4h",
+      "poi_stack": [
+        "4h",
+        "1h"
+      ],
+      "poi_proximal": 1.702,
+      "poi_distal": 1.623,
+      "poi_eq": 1.6625,
+      "poi_state": "FRESH",
+      "status": "WAITING_TAP",
+      "entry_type": "risk",
+      "entry": 1.623,
+      "stop": 1.61234,
+      "stop_pips_or_pct": 0.6566323387025829,
+      "tp1": null,
+      "tp2": 1.885,
+      "rr_tp1": null,
+      "rr_tp2": 24.584450402144626,
+      "score": 52,
+      "grade": "C",
+      "score_breakdown": [
+        {
+          "criterion": "stack_2tf",
+          "label": "2 TF OB çakışması",
+          "points": 12
+        },
+        {
+          "criterion": "fresh_ob",
+          "label": "Dokunulmamış OB",
+          "points": 8
+        },
+        {
+          "criterion": "extreme_ob",
+          "label": "EXTREME OB",
+          "points": 7
+        },
+        {
+          "criterion": "sweep_then_bos",
+          "label": "Sweep sonrası BOS",
+          "points": 10
+        },
+        {
+          "criterion": "mitigated_left_zone",
+          "label": "Soldaki S/D veya OB mitigation",
+          "points": 4
+        },
+        {
+          "criterion": "fvg",
+          "label": "Bacakta FVG",
+          "points": 6
+        },
+        {
+          "criterion": "major_structure_break",
+          "label": "Majör yapı kırılımı",
+          "points": 8
+        },
+        {
+          "criterion": "premium_discount",
+          "label": "Doğru premium/discount tarafı",
+          "points": 7
+        },
+        {
+          "criterion": "preferred_session",
+          "label": "London/NY teyit seansı",
+          "points": 5
+        },
+        {
+          "criterion": "counter_trend_penalty",
+          "label": "Karşı-trend cezası",
+          "points": -15
+        }
+      ],
+      "premium_discount": "Discount",
+      "sweep": true,
+      "fvg": true,
+      "inducement": false,
+      "session_tag": "NYPM",
+      "warnings": [],
+      "last_price": 1.792,
+      "ltf_tf": null,
+      "entry_restriction": "",
+      "protected": 1.623,
+      "targeted": 1.885,
+      "range_low": 1.623,
+      "range_high": 1.885,
+      "poi_rank": 1
+    },
+    {
+      "market": "crypto",
+      "symbol": "MOVRUSDT",
+      "direction": "BULLISH",
+      "htf_bias_d1": "BULLISH",
+      "htf_bias_h4": "BULLISH",
+      "poi_tf": "1h",
+      "poi_stack": [
+        "1h"
+      ],
+      "poi_proximal": 1.25,
+      "poi_distal": 1.195,
+      "poi_eq": 1.2225,
+      "poi_state": "FRESH",
+      "status": "WAITING_TAP",
+      "entry_type": "risk",
+      "entry": 1.195,
+      "stop": 1.17434,
+      "stop_pips_or_pct": 1.7292289300657575,
+      "tp1": null,
+      "tp2": 3.34,
+      "rr_tp1": null,
+      "rr_tp2": 103.80228136882083,
+      "score": 50,
+      "grade": "C",
+      "score_breakdown": [
+        {
+          "criterion": "htf_alignment",
+          "label": "HTF yön uyumu",
+          "points": 20
+        },
+        {
+          "criterion": "stack_1tf",
+          "label": "1 TF OB",
+          "points": 5
+        },
+        {
+          "criterion": "fresh_ob",
+          "label": "Dokunulmamış OB",
+          "points": 8
+        },
+        {
+          "criterion": "premium_discount",
+          "label": "Doğru premium/discount tarafı",
+          "points": 7
+        },
+        {
+          "criterion": "corrective_return",
+          "label": "Corrective dönüş",
+          "points": 5
+        },
+        {
+          "criterion": "preferred_session",
+          "label": "London/NY teyit seansı",
+          "points": 5
+        }
+      ],
+      "premium_discount": "Discount",
+      "sweep": false,
+      "fvg": false,
+      "inducement": false,
+      "session_tag": "NYPM",
+      "warnings": [],
+      "last_price": 2.005,
+      "ltf_tf": null,
+      "entry_restriction": "",
+      "protected": 0.932,
+      "targeted": 3.34,
+      "range_low": 0.932,
+      "range_high": 2.06,
+      "poi_rank": 1
+    }
+  ]
+}
