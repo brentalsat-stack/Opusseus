@@ -72,6 +72,7 @@ def flatten(trades):
             row.update(criteria_flags(trade.get("score_breakdown")))
             row.update(outcome)
             row["variant"] = variant
+            row["hypothesis"] = "base"
             rows.append(row)
     return rows
 
@@ -142,13 +143,21 @@ BREAKDOWNS = (
 )
 
 
+def periods(window):
+    """(ad, since, until) üçlüleri: ilk %60 ve son %40 (setup'ın ilk görülme zamanına göre)."""
+    split = split_time(window)
+    return [("İlk %60", None, split), ("Son %40", split, None)]
+
+
 def split_time(window):
     return window["t_start"] + SPLIT_RATIO * (window["t_end"] - window["t_start"])
 
 
-def select(rows, mode=None, variant=None, since=None, until=None):
+def select(rows, mode=None, variant=None, since=None, until=None, hypothesis="base"):
+    """Satır filtresi. ``hypothesis="base"`` (varsayılan) yalnızca mevcut strateji satırlarını seçer; None hepsini."""
     return [r for r in rows
             if (mode is None or r["mode"] == mode) and (variant is None or r["variant"] == variant)
+            and (hypothesis is None or r.get("hypothesis", "base") == hypothesis)
             and (since is None or r["first_seen_t"] >= since) and (until is None or r["first_seen_t"] < until)]
 
 
@@ -242,6 +251,9 @@ def build_markdown(trades, window, meta=None):
     lines.extend(main_table(rows, trades, until=split))
     lines.extend(["", "### Son dönem (%40)", ""])
     lines.extend(main_table(rows, trades, since=split))
+    import analysis_bt  # geç içe aktarma: analysis_bt bu modülü kullanır
+    lines.append("")
+    lines.extend(analysis_bt.criteria_markdown(analysis_bt.criteria_stats(rows, window)))
     lines.extend(["", "### Maliyet bileşenleri (tüm dönem, toplam R)", "",
                   "| Mod | Varyant | Ücret | Kayma | Funding |", "|---|---|---:|---:|---:|"])
     for mode in MODES:
