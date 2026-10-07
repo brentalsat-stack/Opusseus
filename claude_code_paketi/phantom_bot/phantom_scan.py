@@ -520,6 +520,7 @@ def _scan_symbol(symbol, market, no_cache, progress):
                                      own_structure={"1day": structure_d1, "4h": structure_h4,
                                                     "1h": structure_h1}.get(ob.get("timeframe")))
         candidate.update({"refined_15m": bool(refined), "ltf_ob": status_data.get("ltf_ob"),
+                          "bos_time": ob.get("bos_time"), "stack_count": ob.get("stack_count", 1),
                           "protected": active_context.get("protected"),
                           "targeted": active_context.get("targeted"),
                           "range_low": active_context.get("range_low"),
