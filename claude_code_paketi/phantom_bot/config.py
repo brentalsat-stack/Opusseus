@@ -46,6 +46,25 @@ BINANCE_FUTURES_KLINES_PATH = "/fapi/v1/klines"  # Vadeli mum verisi
 BINANCE_FUTURES_FUNDING_PATH = "/fapi/v1/fundingRate"  # Funding oranı geçmişi
 BINANCE_FUTURES_KLINE_PAGE = 1500  # Sayfalamada istek başına azami mum
 
+# Backtest (backtest/ klasörü; Binance USDⓈ-M perpetual verisi)
+BACKTEST_SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT", "DOGEUSDT", "ADAUSDT", "AVAXUSDT",
+                    "LINKUSDT", "LTCUSDT", "DOTUSDT", "NEARUSDT", "SUIUSDT", "APTUSDT", "ARBUSDT", "OPUSDT",
+                    "INJUSDT", "ATOMUSDT", "FILUSDT", "TRXUSDT"]  # Sabit perpetual evreni
+BT_DAYS = 180  # Replay edilen gün sayısı
+BT_STEP_HOURS = 4  # Replay adımı (saat)
+BT_WARMUP_DAYS = {"1d": 170, "4h": 30, "1h": 14, "15m": 10, "5m": 5}  # Replay başlangıcından önce indirilen ısınma verisi
+BT_REQUEST_DELAY = 0.4  # fapi istekleri arasındaki bekleme (sn)
+BT_WEIGHT_LIMIT_SOFT = 1800  # Dakikalık kullanılan ağırlık bunu aşarsa dakika sonuna kadar beklenir (sınır 2400)
+BT_TOUCH_EXPIRY_HOURS = 72  # POI'ye dokunuş / risk limit emrinin dolması için ilk görülmeden itibaren süre
+BT_CONFIRM_FILL_HOURS = 24  # Confirmation'da teyitten sonra LTF OB girişinin dolması için süre
+BT_MAX_HOLD_DAYS = 14  # Açık pozisyon bu süreyi aşarsa piyasadan kapatılır (TIMEOUT)
+BT_FEE_MAKER_PCT = 0.02  # Limit giriş ve TP çıkışı ücreti (% notional)
+BT_FEE_TAKER_PCT = 0.05  # Stop, BE ve TIMEOUT çıkışı ücreti (% notional)
+BT_SLIPPAGE_PCT = 0.02  # Stop/BE/TIMEOUT çıkışında kayma (% fiyat)
+BT_BASE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "backtest")  # Windows ve a-Shell'de çalışır
+BT_DATA_DIR = os.path.join(BT_BASE_DIR, "data")  # CSV önbelleği
+BT_RESULTS_DIR = os.path.join(BT_BASE_DIR, "results")  # Rapor çıktıları
+
 # Piyasa yapısı ve indikatör eşikleri
 SWING_N = 2  # Swing onayı için her iki taraftaki mum sayısı
 SWING_N_MAJOR = 5  # Majör yapı kırılımı için swing onayı mum sayısı
