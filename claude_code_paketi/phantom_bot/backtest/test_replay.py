@@ -123,8 +123,33 @@ def test_replay_all_deterministic_and_cached():
     print("replay_all: seri == önbellek == çok süreçli (deterministik sıra): GEÇTİ")
 
 
+def test_effective_start_for_short_history():
+    series = bt_synth.make_series(4, DAYS)
+    late = {tf: [r for r in rows if r[0] >= bt_synth.START + 20 * 86400] for tf, rows in series.items()}
+    data = replay.SymbolData("KISAUSDT", late)
+    t_start = bt_synth.START + 10 * 86400
+    effective = replay.effective_start(data, t_start, STEP)
+    assert effective > t_start and (effective - t_start) % STEP == 0
+    earliest = max(data.times[tf][0] + replay.fetch_history.INTERVAL_SECONDS[tf] for tf in data.times)
+    assert effective >= earliest and effective - STEP < earliest
+    full = replay.SymbolData("TAMUSDT", series)
+    assert replay.effective_start(full, bt_synth.START + 30 * 86400, STEP) == bt_synth.START + 30 * 86400
+    # Kısa geçmişli sembol hata vermeden çalışır ve uyarı yazar
+    import contextlib, io
+    data_dir = tempfile.mkdtemp(prefix="bt_short_")
+    write_csvs("KISAUSDT", late, data_dir)
+    buffer = io.StringIO()
+    with contextlib.redirect_stdout(buffer):
+        symbol, records = replay.replay_worker({"symbol": "KISAUSDT", "data_dir": data_dir, "t_start": t_start,
+                                                "t_end": t_start + 12 * 86400, "step_s": STEP})
+    assert symbol == "KISAUSDT" and "UYARI: KISAUSDT" in buffer.getvalue()
+    assert all(r["first_seen_t"] >= effective for r in records)
+    print("Kısa geçmişli sembolde replay erken adımları atlıyor ve uyarıyor: GEÇTİ")
+
+
 def main():
     test_series_at()
+    test_effective_start_for_short_history()
     test_no_lookahead()
     test_dedupe_and_first_seen()
     test_environment_restored()

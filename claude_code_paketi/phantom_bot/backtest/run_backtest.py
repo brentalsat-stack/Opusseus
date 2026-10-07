@@ -99,8 +99,11 @@ def main(argv=None, request=None, print_fn=print):
 
     phase = time.monotonic()
     print_fn("2/4 Replay (look-ahead'siz tarama)")
+    tag = "smoke" if args.smoke else "d{}".format(days)
+    print_fn("   pencere etiketi: {} (dosya adları ve replay önbelleği bu etiketle ayrılır)".format(tag))
     setups, window = replay.replay_all(symbols, args.data_dir, days, args.step, workers=args.workers,
-                                       results_dir=args.results_dir, force=args.force_replay, print_fn=print_fn)
+                                       results_dir=args.results_dir, force=args.force_replay, print_fn=print_fn,
+                                       tag=tag)
     print_fn("   {} tekil setup; replay aşaması: {:.0f} sn".format(len(setups), time.monotonic() - phase))
 
     phase = time.monotonic()
@@ -109,7 +112,7 @@ def main(argv=None, request=None, print_fn=print):
     print_fn("   simülasyon aşaması: {:.0f} sn".format(time.monotonic() - phase))
 
     print_fn("4/4 Rapor")
-    paths = report_bt.write_reports(trades, window, args.results_dir, {"symbols": symbols})
+    paths = report_bt.write_reports(trades, window, args.results_dir, {"symbols": symbols}, tag=tag)
     rows = report_bt.flatten(trades)
     for mode in report_bt.MODES:
         for variant in report_bt.VARIANTS:

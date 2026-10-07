@@ -44,17 +44,21 @@ Bu dosyayı geliştiriciye gösterin: gerçek yanıt şeması beklenenle aynı m
 ## 4) Tam backtest
 ```
 python backtest\run_backtest.py --days 180 --step 4
+python backtest\run_backtest.py --days 365 --step 4
 ```
-| Aşama | Tahmini süre |
-|---|---|
-| Veri indirme (20 sembol × 5 zaman dilimi + funding, ~1100 istek) | 12–25 dk (ilk çalıştırma) |
-| Replay (1080 adım × 20 sembol) | 20–45 dk (çok çekirdekli) |
-| Simülasyon + rapor | 5–20 dk |
+| Aşama | 180 gün | 365 gün |
+|---|---|---|
+| Veri indirme (20 sembol × 5 zaman dilimi + funding) | 12–25 dk (ilk çalıştırma) | +12–25 dk (eksik geri kısım; 180 günlük CSV'ler korunur) |
+| Replay | 20–45 dk (çok çekirdekli) | 40–90 dk |
+| Simülasyon + rapor | 5–25 dk | 10–30 dk |
 
 * Kesintiye uğrarsa (Ctrl+C, bağlantı kopması) aynı komutu tekrar çalıştırın: indirilen CSV'ler ve biten sembollerin
   replay sonuçları önbellekten kullanılır; yalnızca eksik kısım yeniden yapılır.
-* Disk: yaklaşık 100 MB (`backtest\data`), sonuçlar `backtest\results`.
-* Tekrarlanabilir koşu için veri bitişini sabitleyebilirsiniz: `--end-ts <epoch_saniye>`.
+* Replay önbellek şeması değiştiyse (`REPLAY_VERSION`) eski önbellek otomatik reddedilir: bu sürümde puan kriterleri
+  kaydedildiği için **180 günlük replay'in bir kez yenilenmesi gerekir** (veri yeniden indirilmez).
+* Disk: 365 gün için yaklaşık 200 MB (`backtest\data`), sonuçlar `backtest\results`.
+* Tekrarlanabilir koşu için veri bitişini sabitleyebilirsiniz: `--end-ts <epoch_saniye>` (180 ve 365 koşusunda aynı değeri kullanın).
+* Bir sembolün geçmişi istenenden kısaysa indirme sırasında `UYARI` yazılır ve replay o sembolde veri başlayana kadar olan adımları atlar.
 
 ### Seçenekler
 | Seçenek | Anlamı |
@@ -70,13 +74,28 @@ python backtest\run_backtest.py --days 180 --step 4
 Parametreler `config.py` içindeki `BT_*` ayarlarındadır (ücretler, süreler, funding vb.).
 
 ## 5) Çıktılar (`backtest\results\`)
-* `bt_report_*.md` (ve son raporun kopyası `bt_latest.md`): mod (risk / confirmation) × varyant (A: TP2, B: TP1 %50 + BE)
-  tabloları; dolmayan/iptal sayıları; kırılımlar (not, POI TF, yön, sembol, R:R aralığı, stop genişliği);
-  maliyetli (net) ve maliyetsiz (brüt) sonuçlar yan yana; ilk %60 / son %40 doğrulama ve yalnızca ilk döneme
-  dayanan eşik önerileri (son dönemde kontrol edilir).
-* `bt_trades_*.csv`: her dolan işlem (mod × varyant) bir satır.
-* `bt_summary_*.csv`: dönem (tümü / ilk %60 / son %40) bazında özet.
-* `replay\replay_<SEMBOL>.json`: replay önbelleği (tekil setup'lar).
+Dosya adlarında pencere etiketi bulunur (`d180`, `d365`, deneme için `smoke`); farklı pencereler birbirini ezmez.
+* `bt_report_<etiket>_*.md` (ve son raporun kopyası `bt_latest_<etiket>.md`):
+  * Başta **önceden kayıtlı başarı ölçütü** (aşağıda) ve 365 günden kısa pencerelerde "nihai karar 365 gün raporundadır" notu.
+  * Mod (risk / confirmation) × varyant (A: TP2, B: TP1 %50 + BE) tabloları: win%, ortalama R (net ve brüt), gün bazlı küme
+    bootstrap %90 aralığı, P(ort>0), en iyi 5 işlem hariç ortalama, max DD, kayıp serisi, TIMEOUT; dolmayan/iptal sayıları;
+    kırılımlar (not, POI TF, yön, sembol, R:R aralığı, stop genişliği); ilk %60 / son %40 tabloları.
+  * **Hipotez analizleri**: minimum stop (confirmation: a = giriş × %0.5, b = 1h ATR(14)), sabit 3R hedef; her biri ilk %60,
+    son %40 ve tüm dönem için; mekanik "geçti / geçmedi" işareti.
+  * **Puan kriterlerinin katkısı**: her kriter için var/yok grupları (n, win%, ort. R, bootstrap aralığı, P), fark ve
+    iki dönemde işaret tutarlılığı.
+* `bt_trades_<etiket>_*.csv`: her dolan işlem (mod × hipotez × varyant) bir satır; puan kriterleri `crit_*` 0/1 sütunlarıdır.
+* `bt_summary_<etiket>_*.csv`: dönem (tümü / ilk %60 / son %40) özeti. `bt_hypotheses_<etiket>_*.csv`: hipotez özeti ve kararlar.
+* `replay_<etiket>\replay_<SEMBOL>.json`: replay önbelleği (tekil setup'lar). Önbellek şeması sürümlüdür; sürüm değişince
+  otomatik olarak yeniden hesaplanır.
+
+### Önceden kayıtlı başarı ölçütü
+> Bir hipotez ancak 365 günlük veride, maliyetli net ortalama R hem ilk %60 hem son %40 döneminde > 0 VE gün bazlı küme
+> bootstrap ile her iki dönemde P(ort>0) ≥ 0.90 ise 'geçti' sayılır. Aksi halde 'geçmedi'.
+
+Rapor bu ölçütü her hipotez satırına mekanik olarak uygular (taban stratejiler karşılaştırma için aynı işareti alır).
+180 günlük raporda işaretler `†` ile gösterilir; **nihai karar 365 gün raporundadır**. Izgara/eşik araması yoktur.
+Çoklu karşılaştırma: kriter tablolarında yaklaşık 100 aralık vardır; yüzde 90 düzeyinde ~10'u tesadüfen sıfırı dışlar.
 
 ## 6) Varsayımlar ve sınırlar
 * **1R sabit risk, kaldıraç yok.** Likidasyon modellenmez (stop'un likidasyondan önce çalıştığı varsayılır).

@@ -158,6 +158,16 @@ def run():
     assert summary["BTCUSDT"]["5m"] == 3 * 288 and summary["BTCUSDT"]["1d"] == 3, summary
     assert any("[1/1] BTCUSDT 5m OK" in line for line in lines) and any("funding OK" in line for line in lines)
     assert fh.count_gaps([(0, 1, 1, 1, 1, 1), (900, 1, 1, 1, 1, 1)], "5m") == 2
+    # İstenenden kısa geçmiş: uyarı yazılır, hata verilmez
+    short_lines = []
+    config.BT_WARMUP_DAYS.update({"1d": 0, "4h": 0, "1h": 0, "15m": 0, "5m": 0})
+    try:
+        fh.fetch_all(["SHORTUSDT"], 10, end_s=START + 3 * 86400, data_dir=tempfile.mkdtemp(prefix="bt_fetch_"),
+                     request=FakeFapi(count_5m=4000, funding_count=100), now_ms=(START + 3 * 86400 + 60) * 1000,
+                     print_fn=short_lines.append)
+    finally:
+        config.BT_WARMUP_DAYS.update(saved)
+    assert any("UYARI: SHORTUSDT 5m geçmişi istenenden kısa" in line for line in short_lines), short_lines
     print("fetch_all ilerleme çıktısı ve özet: GEÇTİ")
 
 

@@ -79,6 +79,12 @@ def run():
     assert any(f.startswith("bt_trades_") for f in reports) and any(f.startswith("bt_summary_") for f in reports)
     first_requests = len(api.requests)
     assert first_requests > 0
+    # Pencere etiketi: dosya adları ve replay önbellek klasörü --days'e göre ayrılır (d5).
+    assert any(f.startswith("bt_report_d5_") and f.endswith(".md") for f in reports)
+    assert any(f.startswith("bt_hypotheses_d5_") for f in reports) and "bt_latest_d5.md" in reports
+    replay_dir = os.path.join(results_dir, "replay_d5")
+    assert os.path.isdir(replay_dir) and any(f.startswith("replay_") for f in os.listdir(replay_dir))
+    before = {f: open(os.path.join(replay_dir, f), "rb").read() for f in os.listdir(replay_dir)}
 
     # İkinci koşu: veri tamamen önbellekte → yeni kline isteği yok; replay önbellekten.
     lines2 = []
@@ -86,6 +92,18 @@ def run():
     assert code == 0 and len(api.requests) == first_requests, (len(api.requests), first_requests)
     assert any("önbellekten" in line for line in lines2)
     print("Uçtan uca koşu + önbellek yeniden kullanımı: GEÇTİ")
+
+    # Farklı pencere (--days 4) aynı klasörleri kullansa da d5 sonuçlarını ezmez; kendi etiketini alır.
+    lines4 = []
+    code = run_backtest.main(["--days", "4", "--step", "12", "--symbols", "BTCUSDT,ETHUSDT", "--workers", "1",
+                              "--end-ts", str(END_TS), "--data-dir", data_dir, "--results-dir", results_dir],
+                             request=api, print_fn=lines4.append)
+    assert code == 0
+    assert os.path.isdir(os.path.join(results_dir, "replay_d4")) and "bt_latest_d4.md" in os.listdir(results_dir)
+    after = {f: open(os.path.join(replay_dir, f), "rb").read() for f in os.listdir(replay_dir)}
+    assert before == after
+    assert "bt_latest_d5.md" in os.listdir(results_dir)
+    print("d4/d5 etiketleri ayrı dosya ve önbellek: GEÇTİ")
 
     # Smoke: şema günlüğü yalnızca alan adları içerir.
     smoke_lines = []

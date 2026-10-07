@@ -317,11 +317,13 @@ SUMMARY_COLUMNS = ["period", "mode", "variant", "n", "unfilled", "winrate", "avg
                    "avg_gross", "total_net", "total_gross", "max_dd", "longest_loss_streak", "timeouts", "timeout_r"]
 
 
-def write_reports(trades, window, out_dir=None, meta=None, stamp=None):
+def write_reports(trades, window, out_dir=None, meta=None, stamp=None, tag=None):
     """bt_report_*.md, bt_trades_*.csv ve bt_summary_*.csv yazar; dosya yollarını döndürür."""
     out_dir = out_dir or config.BT_RESULTS_DIR
     os.makedirs(out_dir, exist_ok=True)
     stamp = stamp or datetime.now(timezone.utc).strftime("%Y-%m-%d_%H%M_UTC")
+    if tag:  # pencere etiketi (ör. d180, d365) dosya adlarında yer alır
+        stamp = "{}_{}".format(tag, stamp)
     rows = flatten(trades)
     split = split_time(window)
     md_path = os.path.join(out_dir, "bt_report_{}.md".format(stamp))
@@ -354,7 +356,7 @@ def write_reports(trades, window, out_dir=None, meta=None, stamp=None):
         writer.writeheader()
         for record in analysis_bt.hypothesis_csv_rows(analysis_bt.hypothesis_stats(rows, window), window):
             writer.writerow({key: ("" if value is None else value) for key, value in record.items()})
-    latest = os.path.join(out_dir, "bt_latest.md")
+    latest = os.path.join(out_dir, "bt_latest_{}.md".format(tag) if tag else "bt_latest.md")
     with open(latest, "w", encoding="utf-8", newline="") as handle:
         handle.write(open(md_path, encoding="utf-8").read())
     return {"md": md_path, "trades": trades_path, "summary": summary_path, "hypotheses": hyp_path,

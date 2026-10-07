@@ -278,6 +278,10 @@ def fetch_all(symbols, days, end_s=None, data_dir=None, request=default_request,
                 symbol, timeframe, required_start_s(timeframe, end_s, days), end_s, data_dir=data_dir,
                 request=request, throttle=throttle, schema=schema, now_ms=now_ms, progress=progress)
             summary[symbol][timeframe] = len(rows)
+            wanted = required_start_s(timeframe, end_s, days)
+            if rows and rows[0][0] > wanted + 2 * INTERVAL_SECONDS[timeframe]:
+                print_fn("[{}/{}] UYARI: {} {} geçmişi istenenden kısa (ilk mum {} gün geç); bu sembol için daha kısa bir pencere kullanılacak".format(
+                    index, total, symbol, timeframe, (rows[0][0] - wanted) // 86400))
             gaps = count_gaps(rows, timeframe)
             print_fn("[{}/{}] {} {} OK ({} mum, +{} yeni{})".format(
                 index, total, symbol, timeframe, len(rows), fetched,

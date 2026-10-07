@@ -163,10 +163,24 @@ def replay_symbol(symbol, data, t_start, t_end, step_s, scan=None, progress=None
 
 
 # ---------------------------------------------------------------- çok süreçli çalıştırma
+def effective_start(data, t_start, step_s):
+    """Tüm zaman dilimlerinde en az bir kapanmış mum bulunan ilk adım (ızgara t_start + k × step_s)."""
+    earliest = max(data.times[tf][0] + fetch_history.INTERVAL_SECONDS[tf] for tf in fetch_history.TIMEFRAMES)
+    if earliest <= t_start:
+        return t_start
+    steps = -(-(earliest - t_start) // step_s)
+    return t_start + steps * step_s
+
+
 def replay_worker(job):
     """Modül düzeyinde tanımlı işçi (Windows spawn için pickle edilebilir). job: sözlük."""
     data = SymbolData.load(job["symbol"], job["data_dir"])
-    records = replay_symbol(job["symbol"], data, job["t_start"], job["t_end"], job["step_s"])
+    t_start = effective_start(data, job["t_start"], job["step_s"])
+    if t_start > job["t_start"]:
+        print("UYARI: {} geçmiş verisi istenen pencereden kısa; replay {} UTC'den başlıyor (kayıp adım: {})".format(
+            job["symbol"], datetime.fromtimestamp(t_start, timezone.utc).strftime("%Y-%m-%d %H:%M"),
+            (t_start - job["t_start"]) // job["step_s"]))
+    records = replay_symbol(job["symbol"], data, t_start, job["t_end"], job["step_s"])
     return job["symbol"], records
 
 
@@ -181,12 +195,14 @@ def replay_range(data_dir, days, step_hours, symbol=None):
     return t_start, t_end, step_s
 
 
-def cache_path(symbol, results_dir=None):
-    return os.path.join(results_dir or config.BT_RESULTS_DIR, "replay", "replay_{}.json".format(symbol))
+def cache_path(symbol, results_dir=None, tag=None):
+    """Replay önbellek yolu; pencere etiketi (d180/d365) ayrı klasör verir, farklı pencereler birbirini ezmez."""
+    folder = "replay_{}".format(tag) if tag else "replay"
+    return os.path.join(results_dir or config.BT_RESULTS_DIR, folder, "replay_{}.json".format(symbol))
 
 
 def replay_all(symbols, data_dir, days, step_hours, workers=1, results_dir=None, force=False,
-               print_fn=print, t_window=None):
+               print_fn=print, t_window=None, tag=None):
     """Tüm semboller için replay; sonuçlar sembol listesi sırasına göre (deterministik) birleştirilir.
 
     Sembol başına sonuç JSON önbelleğe yazılır; aynı pencere için tekrar çalıştırmada yeniden kullanılır.
@@ -195,7 +211,7 @@ def replay_all(symbols, data_dir, days, step_hours, workers=1, results_dir=None,
     window = {"t_start": t_start, "t_end": t_end, "step_s": step_s, "version": REPLAY_VERSION}
     results, jobs = {}, []
     for symbol in symbols:
-        path = cache_path(symbol, results_dir)
+        path = cache_path(symbol, results_dir, tag)
         cached = None
         if not force and os.path.isfile(path):
             with open(path, "r", encoding="utf-8") as handle:
@@ -221,7 +237,7 @@ def replay_all(symbols, data_dir, days, step_hours, workers=1, results_dir=None,
                 results[symbol] = records
                 print_fn("replay {} bitti ({} setup)".format(symbol, len(records)))
         for job in jobs:
-            path = cache_path(job["symbol"], results_dir)
+            path = cache_path(job["symbol"], results_dir, tag)
             os.makedirs(os.path.dirname(path), exist_ok=True)
             with open(path, "w", encoding="utf-8") as handle:
                 json.dump({"window": window, "setups": results[job["symbol"]]}, handle,
