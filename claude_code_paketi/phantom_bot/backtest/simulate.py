@@ -22,6 +22,7 @@ import signals  # noqa: E402
 VARIANTS = ("TP2", "TP1BE")
 MODES = ("risk", "confirmation")
 FIVE = 300
+MIN_STOP_PCT = 0.005  # min stop hipotezi (a): giriş fiyatının %0.5'i
 
 
 def _params():
@@ -167,18 +168,37 @@ def _base(record, mode):
             "score_breakdown": record.get("score_breakdown")}
 
 
-def _run_order(record, mode, data, order_t, entry, stop, tp1, tp2, valid_until, params, extra=None):
-    """Emri yerleştirip dolum + (iki varyant için) yönetim sonuçlarını üretir."""
+R3_MULTIPLE = 3.0  # sabit R hedef hipotezi: giriş ± 3 × orijinal stop mesafesi
+
+
+def _outcome(record, rows, index, entry, stop, tp1, tp2, variant, fill_t, data, params):
+    legs = manage_position(rows, index, record["direction"], entry, stop, tp1, tp2, variant, params["max_hold"])
+    outcome = trade_result(record["direction"], entry, stop, legs, fill_t, data.funding, params)
+    outcome["data_end"] = outcome["exit_reason"] == "TIMEOUT" and legs[-1][3] >= rows[-1][0] + FIVE
+    return outcome
+
+
+def _run_order(record, mode, data, order_t, entry, stop, tp1, tp2, valid_until, params, extra=None,
+               min_stops=None):
+    """Emri yerleştirip dolum + yönetim sonuçlarını üretir.
+
+    Ana sonuç (``variants``: TP2 ve TP1BE) mevcut stratejidir. Ek hipotezler:
+    ``r3`` — TP2 yerine sabit 3R hedef (kendi iptal/dolum çözümüyle);
+    ``minstop`` — ``min_stops`` {ad: asgari stop mesafesi (fiyat)}; yalnızca confirmation için verilir,
+    stop gerekirse genişler (giriş ve hedefler aynı), R yeniden hesaplanır.
+    """
     rows, times = data.rows["5m"], data.times["5m"]
     result = _base(record, mode)
     result.update(extra or {})
     result.update({"order_t": order_t, "entry": entry, "stop": stop, "tp1": tp1, "tp2": tp2})
     risk = abs(entry - stop)
+    sign = _sign(record["direction"])
+    if risk > 0:
+        result["stop_pct"] = risk / entry * 100.0
+        result["r3"] = _run_r3(record, data, order_t, entry, stop, sign, risk, valid_until, params)
     if tp2 is None or risk <= 0:
         result["status"] = "NO_TARGET"
         return result
-    sign = _sign(record["direction"])
-    result["stop_pct"] = risk / entry * 100.0
     result["rr_tp2"] = abs(tp2 - entry) / risk
     result["rr_tp1"] = abs(tp1 - entry) / risk if tp1 is not None else None
     status, index = resolve_order(rows, times, order_t, record["direction"], entry, stop, tp2,
@@ -188,13 +208,39 @@ def _run_order(record, mode, data, order_t, entry, stop, tp1, tp2, valid_until, 
         return result
     fill_t = rows[index][0]
     result["fill_t"] = fill_t
-    result["variants"] = {}
-    for variant in VARIANTS:
-        legs = manage_position(rows, index, record["direction"], entry, stop, tp1, tp2, variant, params["max_hold"])
-        outcome = trade_result(record["direction"], entry, stop, legs, fill_t, data.funding, params)
-        outcome["data_end"] = outcome["exit_reason"] == "TIMEOUT" and legs[-1][3] >= rows[-1][0] + FIVE
-        result["variants"][variant] = outcome
+    result["variants"] = {variant: _outcome(record, rows, index, entry, stop, tp1, tp2, variant, fill_t, data, params)
+                          for variant in VARIANTS}
+    if min_stops:
+        result["minstop"] = {}
+        for name, distance in sorted(min_stops.items()):
+            if distance is None or distance <= risk * (1 + 1e-12):
+                result["minstop"][name] = {"changed": False, "stop": stop, "stop_pct": result["stop_pct"],
+                                           "rr_tp2": result["rr_tp2"], "variants": result["variants"]}
+                continue
+            new_stop = entry - sign * distance
+            result["minstop"][name] = {
+                "changed": True, "stop": new_stop, "stop_pct": distance / entry * 100.0,
+                "rr_tp2": abs(tp2 - entry) / distance,
+                "variants": {variant: _outcome(record, rows, index, entry, new_stop, tp1, tp2, variant, fill_t,
+                                               data, params) for variant in VARIANTS}}
     return result
+
+
+def _run_r3(record, data, order_t, entry, stop, sign, risk, valid_until, params):
+    """Sabit 3R hedef: ayrı emir çözümü (3R'a dolmadan ulaşılırsa iptal) ve tek bacaklı çıkış."""
+    rows, times = data.rows["5m"], data.times["5m"]
+    target = entry + sign * R3_MULTIPLE * risk
+    status, index = resolve_order(rows, times, order_t, record["direction"], entry, stop, target,
+                                  record["poi_distal"], valid_until)
+    r3 = {"status": status, "target": target, "rr_tp2": R3_MULTIPLE, "stop_pct": risk / entry * 100.0}
+    if status == "FILLED":
+        fill_t = rows[index][0]
+        r3["fill_t"] = fill_t
+        outcome = _outcome(record, rows, index, entry, stop, None, target, "TP2", fill_t, data, params)
+        if outcome["exit_reason"] == "TP2":
+            outcome["exit_reason"] = "R3"
+        r3["outcome"] = outcome
+    return r3
 
 
 def simulate_risk(record, data, params):
@@ -283,9 +329,13 @@ def simulate_confirmation(record, data, params):
                 entry_type="double_confirmation" if status["status"] == "ENTRY2_READY" else "confirmation",
                 irl_levels=record["ctx"]["irl"], pd_levels=record["ctx"]["pd"], pw_levels=record["ctx"]["pw"],
                 targeted_level=record["ctx"]["targeted"], ltf_ob=status["ltf_ob"])
+            # Min stop hipotezleri: (a) giriş × %0.5, (b) 1h ATR(14) — teyit anına kadar KAPANMIŞ 1h mumlarla
+            atr_1h = indicators.atr(data.closed("1h", tau, config.ATR_PERIOD + 1), config.ATR_PERIOD)
+            min_stops = {"minstop_pct": MIN_STOP_PCT * levels["entry"], "minstop_atr": atr_1h or None}
             return _run_order(record, "confirmation", data, tau, levels["entry"], levels["stop"],
                               levels["tp1"], levels["tp2"], tau + params["confirm_fill"], params,
-                              {"confirm_t": tau, "confirm_status": status["status"], "ltf_tf": status["ltf_tf"]})
+                              {"confirm_t": tau, "confirm_status": status["status"], "ltf_tf": status["ltf_tf"],
+                               "atr_1h": atr_1h}, min_stops=min_stops)
         tau += 900
     result["status"] = "PENDING_END" if last_close < deadline else "NO_CONFIRM"
     return result

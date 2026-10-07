@@ -58,22 +58,43 @@ def criteria_flags(score_breakdown):
 
 
 # ------------------------------------------------------------------ düzleştirme ve istatistik
+ROW_FIELDS = ("mode", "symbol", "direction", "poi_tf", "grade", "score", "first_seen_t", "actionable",
+              "distance_pct", "order_t", "fill_t", "entry", "stop", "tp1", "tp2", "rr_tp1", "rr_tp2", "stop_pct",
+              "confirm_t", "confirm_status", "ltf_tf")
+
+
 def flatten(trades):
-    """İşlem sonuçlarını (mod × varyant) satırlara çevirir; yalnızca dolmuş işlemler."""
+    """İşlem sonuçlarını satırlara çevirir; yalnızca dolmuş işlemler.
+
+    ``hypothesis == "base"``: mevcut strateji (varyant TP2 / TP1BE). Ek satırlar: ``minstop_pct`` ve
+    ``minstop_atr`` (yalnız confirmation; varyant TP2 / TP1BE) ve ``r3`` (varyant R3; kendi dolum kümesiyle).
+    ``trade_id`` aynı işlemi hipotezler arasında eşlemek içindir.
+    """
     rows = []
     for trade in trades:
-        if trade.get("status") != "FILLED":
-            continue
-        for variant, outcome in sorted(trade["variants"].items()):
-            row = {key: trade.get(key) for key in (
-                "mode", "symbol", "direction", "poi_tf", "grade", "score", "first_seen_t", "actionable",
-                "distance_pct", "order_t", "fill_t", "entry", "stop", "tp1", "tp2", "rr_tp1", "rr_tp2", "stop_pct",
-                "confirm_t", "confirm_status", "ltf_tf")}
-            row.update(criteria_flags(trade.get("score_breakdown")))
+        flags = criteria_flags(trade.get("score_breakdown"))
+        trade_id = "{}|{}|{}".format(trade.get("symbol"), "/".join(str(x) for x in trade.get("key", [])),
+                                     trade.get("mode"))
+
+        def make(hypothesis, variant, outcome, **overrides):
+            row = {key: trade.get(key) for key in ROW_FIELDS}
+            row.update(flags)
+            row.update(overrides)
             row.update(outcome)
-            row["variant"] = variant
-            row["hypothesis"] = "base"
-            rows.append(row)
+            row.update({"variant": variant, "hypothesis": hypothesis, "trade_id": trade_id})
+            return row
+
+        if trade.get("status") == "FILLED":
+            for variant, outcome in sorted(trade["variants"].items()):
+                rows.append(make("base", variant, outcome))
+            for name, info in sorted((trade.get("minstop") or {}).items()):
+                for variant, outcome in sorted(info["variants"].items()):
+                    rows.append(make(name, variant, outcome, stop=info["stop"], stop_pct=info["stop_pct"],
+                                     rr_tp2=info["rr_tp2"], stop_changed=int(info["changed"])))
+        r3 = trade.get("r3")
+        if r3 and r3.get("status") == "FILLED":
+            rows.append(make("r3", "R3", r3["outcome"], fill_t=r3["fill_t"], rr_tp2=r3["rr_tp2"],
+                             stop_pct=r3["stop_pct"], tp2=r3["target"], tp1=None, rr_tp1=None))
     return rows
 
 
@@ -266,7 +287,7 @@ def build_markdown(trades, window, meta=None):
 
 
 # ------------------------------------------------------------------ CSV / dosya
-TRADE_COLUMNS = ["mode", "variant", "symbol", "direction", "poi_tf", "grade", "score", "first_seen_t", "actionable",
+TRADE_COLUMNS = ["mode", "hypothesis", "variant", "trade_id", "stop_changed", "symbol", "direction", "poi_tf", "grade", "score", "first_seen_t", "actionable",
                  "distance_pct", "order_t", "confirm_t", "confirm_status", "ltf_tf", "fill_t", "entry", "stop",
                  "tp1", "tp2", "rr_tp1", "rr_tp2", "stop_pct", "exit_reason", "exit_t", "hold_hours", "r_gross",
                  "r_net", "fee_r", "slip_r", "funding_r"] + CRITERIA_COLUMNS
@@ -288,7 +309,7 @@ def write_reports(trades, window, out_dir=None, meta=None, stamp=None):
     with open(trades_path, "w", encoding="utf-8-sig", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=TRADE_COLUMNS, extrasaction="ignore")
         writer.writeheader()
-        for row in sorted(rows, key=lambda r: (r["first_seen_t"], r["symbol"], r["mode"], r["variant"])):
+        for row in sorted(rows, key=lambda r: (r["first_seen_t"], r["symbol"], r["mode"], r["hypothesis"], r["variant"])):
             writer.writerow({key: ("" if row.get(key) is None else row.get(key)) for key in TRADE_COLUMNS})
     summary_path = os.path.join(out_dir, "bt_summary_{}.csv".format(stamp))
     with open(summary_path, "w", encoding="utf-8-sig", newline="") as handle:
