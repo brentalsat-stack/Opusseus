@@ -168,9 +168,9 @@ def replay_worker(job):
     return job["symbol"], records
 
 
-def replay_range(data_dir, days, step_hours):
+def replay_range(data_dir, days, step_hours, symbol=None):
     """CSV verisine göre replay penceresi: son kapanmış 5m'ye kadar `days` gün."""
-    sample = fetch_history.read_klines(fetch_history.kline_path(config.BACKTEST_SYMBOLS[0], "5m", data_dir))
+    sample = fetch_history.read_klines(fetch_history.kline_path(symbol or config.BACKTEST_SYMBOLS[0], "5m", data_dir))
     if not sample:
         raise RuntimeError("5m CSV verisi yok")
     t_end = sample[-1][0] + 300
@@ -189,7 +189,7 @@ def replay_all(symbols, data_dir, days, step_hours, workers=1, results_dir=None,
 
     Sembol başına sonuç JSON önbelleğe yazılır; aynı pencere için tekrar çalıştırmada yeniden kullanılır.
     """
-    t_start, t_end, step_s = t_window or replay_range(data_dir, days, step_hours)
+    t_start, t_end, step_s = t_window or replay_range(data_dir, days, step_hours, symbols[0])
     window = {"t_start": t_start, "t_end": t_end, "step_s": step_s}
     results, jobs = {}, []
     for symbol in symbols:
