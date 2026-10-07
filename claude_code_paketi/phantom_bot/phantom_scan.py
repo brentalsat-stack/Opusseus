@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 
 import config
 import data_binance
+import data_futures
 import data_twelvedata
 import indicators
 import liquidity
@@ -28,6 +29,21 @@ ANALYSIS_CANDLES = 160
 TIMEFRAME_SECONDS = {"1day": 86400, "4h": 14400, "1h": 3600}
 
 
+SOURCE_LABELS = {"spot": "Binance spot", "futures": "Binance USDⓈ-M perpetual (futures)"}
+
+
+def crypto_source():
+    """Active crypto data source name ("spot" or "futures") from config."""
+    source = str(config.CRYPTO_DATA_SOURCE).lower()
+    if source not in SOURCE_LABELS:
+        raise ValueError("CRYPTO_DATA_SOURCE 'spot' veya 'futures' olmalı: {}".format(source))
+    return source
+
+
+def _crypto_data():
+    return data_futures if crypto_source() == "futures" else data_binance
+
+
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(description="Phantom SMC tarama botu (bilgi amaçlı, tek seferlik)")
     parser.add_argument("--market", choices=("forex", "crypto", "all"), default="all",
@@ -37,6 +53,8 @@ def parse_args(argv=None):
     parser.add_argument("--balance", type=float, default=None, help="İlk sürümde kullanılmıyor")
     parser.add_argument("--risk", type=float, default=None, help="İlk sürümde kullanılmıyor")
     parser.add_argument("--symbols", type=str, default=None, help="Virgülle ayrılmış semboller")
+    parser.add_argument("--source", choices=("spot", "futures"), default=None,
+                        help="Kripto veri kaynağı (varsayılan: config.CRYPTO_DATA_SOURCE)")
     parser.add_argument("--no-cache", action="store_true", help="Twelve Data önbelleğini kullanma")
     parser.add_argument("--show-all", action="store_true",
                         help="Raporlarda puan eşiğinin altındaki adayları da göster")
@@ -67,7 +85,7 @@ def _symbol_list(args, errors=None):
         selections.extend((symbol, "forex") for symbol in config.FOREX_SYMBOLS)
     if args.market in ("crypto", "all"):
         try:
-            top_symbols = data_binance.get_top_symbols(args.top)
+            top_symbols = _crypto_data().get_top_symbols(args.top)
             selections.extend((item["symbol"], "crypto") for item in top_symbols)
         except Exception as exc:
             if args.market == "crypto":
@@ -102,7 +120,7 @@ def _load_symbol_data(symbol, market, no_cache, progress):
             config.TD_CACHE_TTL_SECONDS = original_ttls
     else:
         for common_tf, api_interval in source_map.items():
-            response = data_binance.get_klines(symbol, api_interval, config.BINANCE_KLINE_LIMIT)
+            response = _crypto_data().get_klines(symbol, api_interval, config.BINANCE_KLINE_LIMIT)
             candles = response["candles"]
             # Keep closed bars for all structural/indicator work. last_candle
             # remains available solely as current-price context.
@@ -535,6 +553,11 @@ def run_scan(args):
     scan_time = datetime.now(timezone.utc)
     utils.ensure_directories()
     data_twelvedata.reset_halt()
+    if getattr(args, "source", None):
+        config.CRYPTO_DATA_SOURCE = args.source
+    crypto_label = SOURCE_LABELS[crypto_source()] if args.market in ("crypto", "all") else None
+    if crypto_label:
+        utils.log("Kripto veri kaynağı: {}".format(crypto_label))
     print("Uyarı: a-Shell'i tarama boyunca ön planda tutun.")
     errors = []
     selections = _symbol_list(args, errors)
@@ -569,7 +592,7 @@ def run_scan(args):
     meta = {"scan_time_utc": scan_time, "market": args.market,
             "symbols_scanned": len(summaries), "duration_seconds": duration,
             "error_count": len(errors), "errors": errors, "warnings": [],
-            "symbols": summaries, "show_all": args.show_all}
+            "symbols": summaries, "show_all": args.show_all, "crypto_source": crypto_label}
     final_results = report._limit_candidates(all_results, meta)
     paths = report.write_reports(all_results, meta)
     actionable = [item for item in final_results if item.get("actionable", True)]

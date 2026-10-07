@@ -243,6 +243,8 @@ def _build_markdown(results, meta, scan_time):
     lines = ["# Phantom SMC Tarama Raporu", "", "## Özet", "",
              "- Tarama zamanı (UTC): {}".format(scan_time.strftime("%Y-%m-%d %H:%M:%S")),
              "- Piyasa: {}".format(_md(meta.get("market", "all"))),
+             "- Kripto veri kaynağı: {}".format(_md(meta.get("crypto_source"))) if meta.get("crypto_source") else
+             "- Kripto veri kaynağı: —",
              "- Taranan sembol: {}".format(_md(meta.get("symbols_scanned", len(symbols)))),
              "- Setup adayı: {} (actionable: {}, uzak: {})".format(
                  len(results) + len(far), len(results), len(far)),
