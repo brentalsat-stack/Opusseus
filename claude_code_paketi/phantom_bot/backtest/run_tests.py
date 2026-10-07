@@ -4,7 +4,7 @@ import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-TESTS = ["test_fetch_history.py", "test_replay.py", "test_simulate.py", "test_bt_stats.py", "test_report_bt.py", "test_criteria_columns.py", "test_analysis_bt.py", "test_hypotheses.py",
+TESTS = ["test_fetch_history.py", "test_replay.py", "test_simulate.py", "test_bt_stats.py", "test_report_bt.py", "test_criteria_columns.py", "test_analysis_bt.py", "test_hypotheses.py", "test_hypothesis_report.py",
          "test_run_backtest.py"]
 
 

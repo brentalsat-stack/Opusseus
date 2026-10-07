@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+import bt_stats  # noqa: E402
 import config  # noqa: E402
 
 MODES = ("risk", "confirmation")
@@ -191,19 +192,36 @@ def _date(t):
     return datetime.fromtimestamp(t, timezone.utc).strftime("%Y-%m-%d")
 
 
-def main_table(rows, trades, since=None, until=None):
+def cluster_stats(subset, label):
+    """Net R için gün bazlı (fill günü) küme bootstrap %90 aralığı, P(ort>0) ve en iyi 5 işlem hariç ortalama."""
+    values = [r["r_net"] for r in subset]
+    clusters = [bt_stats.day_key(r["fill_t"]) for r in subset]
+    ci = bt_stats.cluster_mean_ci(values, clusters, label)
+    ci["trim5"] = bt_stats.trimmed_mean_excl_top(values, 5)
+    return ci
+
+
+def _ci_text(ci, digits=2):
+    return "—" if ci["lo"] is None else "[{}, {}]".format(_fmt(ci["lo"], digits), _fmt(ci["hi"], digits))
+
+
+def main_table(rows, trades, since=None, until=None, period="Tüm dönem"):
     lines = ["| Mod | Varyant | İşlem | Dolmayan/iptal | Win % | Ort. kazanç R | Ort. kayıp R | Ort. R net (±SE) | "
+             "Küme %90 CI | P(ort>0) küme | Top-5 hariç ort. R | "
              "Ort. R brüt | Toplam R net | Toplam R brüt | Max DD (R) | En uzun kayıp serisi | TIMEOUT (n / R) |",
-             "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|"]
+             "|---|---|---:|---:|---:|---:|---:|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|"]
     for mode in MODES:
         mode_trades = [t for t in trades if t["mode"] == mode and (since is None or t["first_seen_t"] >= since)
                        and (until is None or t["first_seen_t"] < until)]
         unfilled = sum(1 for t in mode_trades if t["status"] != "FILLED")
         for variant in VARIANTS:
-            s = stats(select(rows, mode, variant, since, until))
-            lines.append("| {} | {} | {} | {} | {} | {} | {} | {} ± {} | {} | {} | {} | {} | {} | {} / {} |".format(
+            subset = select(rows, mode, variant, since, until)
+            s = stats(subset)
+            ci = cluster_stats(subset, "main|{}|{}|{}".format(period, mode, variant))
+            lines.append("| {} | {} | {} | {} | {} | {} | {} | {} ± {} | {} | {} | {} | {} | {} | {} | {} | {} | {} / {} |".format(
                 mode, VARIANT_LABEL[variant], s["n"], unfilled, _fmt(s["winrate"], 1), _fmt(s["avg_win"]),
-                _fmt(s["avg_loss"]), _fmt(s["avg_net"], 3), _fmt(s["se"], 3), _fmt(s["avg_gross"], 3),
+                _fmt(s["avg_loss"]), _fmt(s["avg_net"], 3), _fmt(s["se"], 3), _ci_text(ci), _fmt(ci["p_pos"]),
+                _fmt(ci["trim5"], 3), _fmt(s["avg_gross"], 3),
                 _fmt(s["total_net"]), _fmt(s["total_gross"]), _fmt(s["max_dd"]), s["longest_loss_streak"],
                 s["timeouts"], _fmt(s["timeout_r"])))
     return lines
@@ -242,7 +260,10 @@ def build_markdown(trades, window, meta=None):
     rows = flatten(trades)
     split = split_time(window)
     meta = meta or {}
-    lines = ["# Phantom SMC Backtest Raporu (Binance USDⓈ-M perpetual)", "", "## Özet", "",
+    import analysis_bt  # geç içe aktarma: analysis_bt bu modülü kullanır
+    lines = ["# Phantom SMC Backtest Raporu (Binance USDⓈ-M perpetual)", ""]
+    lines.extend(analysis_bt.preregistered_header(window))
+    lines.extend(["## Özet", "",
              "- Dönem: {} → {} (UTC), adım: {} saat".format(_date(window["t_start"]), _date(window["t_end"]),
                                                           window["step_s"] // 3600),
              "- Setup sayısı (tekil POI): {}".format(len({(t["symbol"], tuple(t["key"])) for t in trades})),
@@ -252,10 +273,10 @@ def build_markdown(trades, window, meta=None):
              "- Semboller: {}".format(", ".join(meta.get("symbols", [])) or "—"),
              "- Maliyet parametreleri: maker %{}, taker %{}, kayma %{}".format(
                  config.BT_FEE_MAKER_PCT, config.BT_FEE_TAKER_PCT, config.BT_SLIPPAGE_PCT),
-             "", "## Varsayımlar", ""]
+             "", "## Varsayımlar", ""])
     lines.extend("- " + note for note in NOTES)
     lines.extend(["", "## Tüm dönem — mod × varyant (maliyetli = net, maliyetsiz = brüt)", ""])
-    lines.extend(main_table(rows, trades))
+    lines.extend(main_table(rows, trades, period="Tüm dönem"))
     lines.extend(["", "### Dolmayan / iptal / elenen setup'lar", ""])
     lines.extend(status_table(trades))
     lines.extend(["", "## Kırılımlar (tüm dönem)", ""])
@@ -269,10 +290,11 @@ def build_markdown(trades, window, meta=None):
                   "- İlk dönem: {} → {} ; son dönem: {} → {} (setup'ın ilk görülme zamanına göre bölünür)".format(
                       _date(window["t_start"]), _date(split), _date(split), _date(window["t_end"])), ""])
     lines.extend(["### İlk dönem (%60)", ""])
-    lines.extend(main_table(rows, trades, until=split))
+    lines.extend(main_table(rows, trades, until=split, period="İlk %60"))
     lines.extend(["", "### Son dönem (%40)", ""])
-    lines.extend(main_table(rows, trades, since=split))
-    import analysis_bt  # geç içe aktarma: analysis_bt bu modülü kullanır
+    lines.extend(main_table(rows, trades, since=split, period="Son %40"))
+    lines.append("")
+    lines.extend(analysis_bt.hypothesis_markdown(analysis_bt.hypothesis_stats(rows, window), window))
     lines.append("")
     lines.extend(analysis_bt.criteria_markdown(analysis_bt.criteria_stats(rows, window)))
     lines.extend(["", "### Maliyet bileşenleri (tüm dönem, toplam R)", "",
@@ -325,7 +347,15 @@ def write_reports(trades, window, out_dir=None, meta=None, stamp=None):
                     record = {"period": period, "mode": mode, "variant": variant, "unfilled": unfilled}
                     record.update({key: s[key] for key in SUMMARY_COLUMNS if key in s})
                     writer.writerow(record)
+    import analysis_bt
+    hyp_path = os.path.join(out_dir, "bt_hypotheses_{}.csv".format(stamp))
+    with open(hyp_path, "w", encoding="utf-8-sig", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=analysis_bt.SUMMARY_HYP_COLUMNS)
+        writer.writeheader()
+        for record in analysis_bt.hypothesis_csv_rows(analysis_bt.hypothesis_stats(rows, window), window):
+            writer.writerow({key: ("" if value is None else value) for key, value in record.items()})
     latest = os.path.join(out_dir, "bt_latest.md")
     with open(latest, "w", encoding="utf-8", newline="") as handle:
         handle.write(open(md_path, encoding="utf-8").read())
-    return {"md": md_path, "trades": trades_path, "summary": summary_path, "latest": latest}
+    return {"md": md_path, "trades": trades_path, "summary": summary_path, "hypotheses": hyp_path,
+            "latest": latest}
