@@ -14,8 +14,6 @@ import config  # noqa: E402
 MODES = ("risk", "confirmation")
 VARIANTS = ("TP2", "TP1BE")
 VARIANT_LABEL = {"TP2": "A: TP2", "TP1BE": "B: TP1 %50 + BE"}
-MIN_TRADES_FIRST = 30  # eşik önerisi için ilk dönemde asgari işlem
-MIN_TRADES_LAST = 10  # son dönemde "doğrulandı" demek için asgari işlem
 SPLIT_RATIO = 0.6
 
 NOTES = [
@@ -154,62 +152,6 @@ def select(rows, mode=None, variant=None, since=None, until=None):
             and (since is None or r["first_seen_t"] >= since) and (until is None or r["first_seen_t"] < until)]
 
 
-# ------------------------------------------------------------------ eşik önerisi (yalnız ilk dönem)
-GRID = {"min_score": (0, 45, 60, 75), "min_rr": (0, 3, 5, 8), "min_stop_pct": (0.0, 0.3, 0.5),
-        "max_distance_pct": (None, 10.0, 5.0)}
-
-
-def passes(row, f):
-    distance = row.get("distance_pct")
-    return ((row["score"] or 0) >= f["min_score"] and (row["rr_tp2"] or 0) >= f["min_rr"]
-            and (row["stop_pct"] or 0) >= f["min_stop_pct"]
-            and (f["max_distance_pct"] is None or distance is None or distance <= f["max_distance_pct"]))
-
-
-def suggest(rows_first, rows_last):
-    """Her mod×varyant için ilk dönemde (n >= MIN_TRADES_FIRST) en yüksek net ortalama R veren eşikler; son dönemde kontrol."""
-    out = []
-    for mode in MODES:
-        for variant in VARIANTS:
-            first = select(rows_first, mode, variant)
-            last = select(rows_last, mode, variant)
-            best = None
-            for min_score in GRID["min_score"]:
-                for min_rr in GRID["min_rr"]:
-                    for min_stop in GRID["min_stop_pct"]:
-                        for max_dist in GRID["max_distance_pct"]:
-                            f = {"min_score": min_score, "min_rr": min_rr, "min_stop_pct": min_stop,
-                                 "max_distance_pct": max_dist}
-                            subset = [r for r in first if passes(r, f)]
-                            if len(subset) < MIN_TRADES_FIRST:
-                                continue
-                            avg = _mean([r["r_net"] for r in subset])
-                            if best is None or (avg, len(subset)) > (best[0], best[1]):
-                                best = (avg, len(subset), f)
-            entry = {"mode": mode, "variant": variant, "baseline_first": stats(first), "baseline_last": stats(last)}
-            if best is None:
-                entry["filter"] = None
-            else:
-                f = best[2]
-                entry["filter"] = f
-                entry["first"] = stats([r for r in first if passes(r, f)])
-                entry["last"] = stats([r for r in last if passes(r, f)])
-                entry["verdict"] = verdict(entry)
-            out.append(entry)
-    return out
-
-
-def verdict(entry):
-    last = entry["last"]
-    if last["n"] < MIN_TRADES_LAST:
-        return "doğrulanamadı (son dönemde işlem az)"
-    if last["avg_net"] > 0 and last["avg_net"] >= entry["baseline_last"]["avg_net"]:
-        return "son dönemde de pozitif ve taban çizgisinden iyi"
-    if last["avg_net"] > 0:
-        return "son dönemde pozitif ama taban çizgisinden iyi değil"
-    return "son dönemde tutmadı (aşırı uyum olasılığı)"
-
-
 # ------------------------------------------------------------------ Markdown
 def _fmt(value, digits=2):
     return "—" if value is None else ("{:.%df}" % digits).format(value)
@@ -266,11 +208,6 @@ def breakdown_table(rows, mode, variant, title, key_fn, order):
     return lines
 
 
-def filter_text(f):
-    return "min puan {}, min R:R {}, min stop% {}, max mesafe% {}".format(
-        f["min_score"], f["min_rr"], f["min_stop_pct"], "yok" if f["max_distance_pct"] is None else f["max_distance_pct"])
-
-
 def build_markdown(trades, window, meta=None):
     rows = flatten(trades)
     split = split_time(window)
@@ -305,24 +242,6 @@ def build_markdown(trades, window, meta=None):
     lines.extend(main_table(rows, trades, until=split))
     lines.extend(["", "### Son dönem (%40)", ""])
     lines.extend(main_table(rows, trades, since=split))
-    first_rows, last_rows = select(rows, until=split), select(rows, since=split)
-    lines.extend(["", "### Eşik önerileri (yalnızca ilk dönemden; son dönemde kontrol)", "",
-                  "Izgara: puan {}, R:R {}, stop% {}, mesafe% {}. Ölçüt: ilk dönemde en yüksek net ortalama R "
-                  "(en az {} işlem). Küçük örneklemde öneriler aşırı uyum içerebilir; yalnızca son dönem sonucu "
-                  "doğrulama sayılır.".format(GRID["min_score"], GRID["min_rr"], GRID["min_stop_pct"],
-                                              GRID["max_distance_pct"], MIN_TRADES_FIRST), "",
-                  "| Mod | Varyant | Önerilen eşikler | İlk dönem (n / ort. R net) | Son dönem (n / ort. R net) | "
-                  "Son dönem taban (n / ort. R net) | Sonuç |", "|---|---|---|---:|---:|---:|---|"])
-    for entry in suggest(first_rows, last_rows):
-        base = entry["baseline_last"]
-        if entry["filter"] is None:
-            lines.append("| {} | {} | öneri yok (ilk dönemde yeterli işlem yok) | — | — | {} / {} | — |".format(
-                entry["mode"], VARIANT_LABEL[entry["variant"]], base["n"], _fmt(base["avg_net"], 3)))
-            continue
-        lines.append("| {} | {} | {} | {} / {} | {} / {} | {} / {} | {} |".format(
-            entry["mode"], VARIANT_LABEL[entry["variant"]], filter_text(entry["filter"]),
-            entry["first"]["n"], _fmt(entry["first"]["avg_net"], 3), entry["last"]["n"],
-            _fmt(entry["last"]["avg_net"], 3), base["n"], _fmt(base["avg_net"], 3), entry["verdict"]))
     lines.extend(["", "### Maliyet bileşenleri (tüm dönem, toplam R)", "",
                   "| Mod | Varyant | Ücret | Kayma | Funding |", "|---|---|---:|---:|---:|"])
     for mode in MODES:

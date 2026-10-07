@@ -80,29 +80,13 @@ def test_split_and_tables():
     print("Dönem bölme, ana tablo, kırılım başlıkları, dolmayan sayımı: GEÇTİ")
 
 
-def test_thresholds_use_first_period_only():
-    split_day = 60
-    first = []
-    # İlk dönem: yüksek puanlı işlemler kazanıyor, düşük puanlılar kaybediyor (40'ar işlem)
-    for i in range(40):
-        first.append(trade(i * 1.4, 1.0, score=80, key=["S", "BULLISH", "4h", i, 1]))
-        first.append(trade(i * 1.4 + 0.1, -1.0, score=50, key=["S", "BULLISH", "4h", i, 2]))
-    last_a = [trade(61 + i * 0.9, 0.5, score=80, key=["S", "BULLISH", "4h", 100 + i, 1]) for i in range(20)]
-    last_b = [trade(61 + i * 0.9, -2.0, score=80, key=["S", "BULLISH", "4h", 100 + i, 1]) for i in range(20)]
-    rows_first = rb.select(rb.flatten(first), until=rb.split_time(WINDOW))
-    assert len(rows_first) == 160
-    result_a = rb.suggest(rows_first, rb.flatten(last_a))
-    result_b = rb.suggest(rows_first, rb.flatten(last_b))
-    entry_a = next(e for e in result_a if e["mode"] == "risk" and e["variant"] == "TP2")
-    entry_b = next(e for e in result_b if e["mode"] == "risk" and e["variant"] == "TP2")
-    assert entry_a["filter"] == entry_b["filter"] and entry_a["filter"]["min_score"] >= 51 - 6, entry_a["filter"]
-    assert entry_a["filter"]["min_score"] in (60, 75)
-    assert entry_a["first"]["n"] >= rb.MIN_TRADES_FIRST and entry_a["first"]["avg_net"] > 0.9
-    assert "pozitif" in entry_a["verdict"] and "tutmadı" in entry_b["verdict"], (entry_a["verdict"], entry_b["verdict"])
-    # İlk dönemde yeterli işlem yoksa öneri yok
-    few = rb.suggest(rows_first[:10], rb.flatten(last_a))
-    assert all(e["filter"] is None for e in few)
-    print("Eşik önerisi yalnız ilk döneme dayanıyor; son dönem yalnız doğrulama: GEÇTİ")
+def test_no_grid_search():
+    trades = [trade(day, 1.0 if day % 3 else -1.0, key=["A", "BULLISH", "4h", day, 1]) for day in range(1, 90, 2)]
+    markdown = rb.build_markdown(trades, WINDOW, {"symbols": ["BTCUSDT"]})
+    assert "Eşik önerileri" not in markdown and "Izgara" not in markdown
+    for name in ("GRID", "suggest", "passes", "filter_text", "MIN_TRADES_FIRST"):
+        assert not hasattr(rb, name), name
+    print("Izgara/eşik önerisi bölümü kaldırıldı: GEÇTİ")
 
 
 def test_write_reports():
@@ -127,7 +111,7 @@ def main():
     test_stats()
     test_buckets_and_flatten()
     test_split_and_tables()
-    test_thresholds_use_first_period_only()
+    test_no_grid_search()
     test_write_reports()
     print("test_report_bt: OK")
 
