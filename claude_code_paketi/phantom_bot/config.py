@@ -37,6 +37,15 @@ EXCLUDED_SYMBOLS = ["UUSDT", "USD1USDT", "RLUSDUSDT",  # Stable benzeri varlıkl
                     "XAUTUSDT", "PAXGUSDT",  # Altın tokenları
                     "CRCLBUSDT", "SPCXBUSDT", "SNDKBUSDT"]  # Tokenize hisseler (sonu B); yenileri elle ekleyin
 
+# Binance USDⓈ-M perpetual (vadeli) public API — spot'un yedek alan adları burada KULLANILMAZ
+CRYPTO_DATA_SOURCE = "spot"  # Kripto veri kaynağı: "spot" | "futures" (--source ile geçersiz kılınır)
+BINANCE_FUTURES_BASE_URLS = ["https://fapi.binance.com"]  # Yalnızca fapi; bölgesel engel (HTTP 451) durumunda net hata verilir
+BINANCE_FUTURES_EXCHANGE_INFO_PATH = "/fapi/v1/exchangeInfo"  # Sözleşme listesi
+BINANCE_FUTURES_TICKER_24HR_PATH = "/fapi/v1/ticker/24hr"  # 24 saatlik vadeli hacimler
+BINANCE_FUTURES_KLINES_PATH = "/fapi/v1/klines"  # Vadeli mum verisi
+BINANCE_FUTURES_FUNDING_PATH = "/fapi/v1/fundingRate"  # Funding oranı geçmişi
+BINANCE_FUTURES_KLINE_PAGE = 1500  # Sayfalamada istek başına azami mum
+
 # Piyasa yapısı ve indikatör eşikleri
 SWING_N = 2  # Swing onayı için her iki taraftaki mum sayısı
 SWING_N_MAJOR = 5  # Majör yapı kırılımı için swing onayı mum sayısı

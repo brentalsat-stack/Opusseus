@@ -118,8 +118,17 @@ def get_klines(symbol, interval, limit):
     payload = _request_json(config.BINANCE_KLINES_PATH, params)
     if not isinstance(payload, list):
         raise BinanceAPIError("Kline yanıtı liste biçiminde değil")
+    return parse_klines(payload)
 
-    now_ms = int(time.time() * 1000)
+
+def parse_klines(payload, now_ms=None):
+    """Binance kline satırlarını (spot ve futures aynı biçim) ortak mum formatına çevirir.
+
+    Sonuç anahtarları get_klines ile aynıdır. ``now_ms`` verilmezse şu an kullanılır;
+    kapanış zamanı geçmemiş son mum candles dışında tutulur.
+    """
+    if now_ms is None:
+        now_ms = int(time.time() * 1000)
     closed = []
     last_candle = None
     last_closed = None
