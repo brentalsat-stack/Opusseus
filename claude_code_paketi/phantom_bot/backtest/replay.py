@@ -23,6 +23,7 @@ import structure  # noqa: E402
 import utils  # noqa: E402
 
 # Tarama zaman dilimi adı → backtest CSV zaman dilimi
+REPLAY_VERSION = 2  # önbellek şeması; değişince eski replay önbellekleri reddedilir (v2: score_breakdown eklendi)
 SCAN_TIMEFRAMES = (("1day", "1d"), ("4h", "4h"), ("1h", "1h"), ("15m", "15m"), ("5m", "5m"))
 
 
@@ -104,7 +105,8 @@ def _record(candidate, t, series):
     keep = ("symbol", "direction", "poi_tf", "poi_proximal", "poi_distal", "poi_eq", "poi_state", "poi_stack",
             "status", "entry_type", "entry", "stop", "stop_pips_or_pct", "tp1", "tp2", "rr_tp1", "rr_tp2",
             "score", "grade", "premium_discount", "warnings", "last_price", "ltf_tf", "ltf_ob", "bos_time",
-            "stack_count", "htf_bias_d1", "htf_bias_h4", "targeted", "protected", "range_low", "range_high")
+            "stack_count", "htf_bias_d1", "htf_bias_h4", "targeted", "protected", "range_low", "range_high",
+            "score_breakdown")
     record = {key: candidate.get(key) for key in keep}
     record.update({
         "key": list(setup_key(candidate)),
@@ -190,7 +192,7 @@ def replay_all(symbols, data_dir, days, step_hours, workers=1, results_dir=None,
     Sembol başına sonuç JSON önbelleğe yazılır; aynı pencere için tekrar çalıştırmada yeniden kullanılır.
     """
     t_start, t_end, step_s = t_window or replay_range(data_dir, days, step_hours, symbols[0])
-    window = {"t_start": t_start, "t_end": t_end, "step_s": step_s}
+    window = {"t_start": t_start, "t_end": t_end, "step_s": step_s, "version": REPLAY_VERSION}
     results, jobs = {}, []
     for symbol in symbols:
         path = cache_path(symbol, results_dir)

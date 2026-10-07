@@ -163,7 +163,8 @@ def _base(record, mode):
     return {"mode": mode, "symbol": record["symbol"], "key": record["key"], "direction": record["direction"],
             "poi_tf": record["poi_tf"], "grade": record["grade"], "score": record["score"],
             "first_seen_t": record["first_seen_t"], "actionable": record.get("actionable", True),
-            "distance_pct": record.get("distance_pct"), "market": record.get("market", "crypto")}
+            "distance_pct": record.get("distance_pct"), "market": record.get("market", "crypto"),
+            "score_breakdown": record.get("score_breakdown")}
 
 
 def _run_order(record, mode, data, order_t, entry, stop, tp1, tp2, valid_until, params, extra=None):

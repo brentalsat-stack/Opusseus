@@ -31,6 +31,34 @@ NOTES = [
 ]
 
 
+# ------------------------------------------------------------------ puan kriterleri (0/1 sütunlar)
+CRITERIA = (  # (sütun adı, puan tablosundaki kriter adları — herhangi biri varsa 1)
+    ("htf_alignment", ("htf_alignment",)),
+    ("stack_2plus", ("stack_2tf", "stack_3tf")),
+    ("stack_3tf", ("stack_3tf",)),
+    ("fresh_ob", ("fresh_ob",)),
+    ("extreme_ob", ("extreme_ob",)),
+    ("sweep_then_bos", ("sweep_then_bos",)),
+    ("fvg", ("fvg",)),
+    ("major_structure_break", ("major_structure_break",)),
+    ("inducement", ("inducement",)),
+    ("premium_discount", ("premium_discount",)),
+    ("corrective_return", ("corrective_return",)),
+    ("mitigated_left_zone", ("mitigated_left_zone",)),
+    ("preferred_session", ("preferred_session",)),
+    ("v_reversal_penalty", ("v_reversal_penalty",)),
+    ("counter_trend_penalty", ("counter_trend_penalty",)),
+)
+REPORT_CRITERIA = [name for name, _ in CRITERIA[:12]]  # raporda analiz edilenler
+CRITERIA_COLUMNS = ["crit_" + name for name, _ in CRITERIA]
+
+
+def criteria_flags(score_breakdown):
+    """score_breakdown ([{criterion, points}, ...]) → {crit_<ad>: 0/1}."""
+    present = {item.get("criterion") for item in (score_breakdown or []) if isinstance(item, dict)}
+    return {"crit_" + name: int(any(key in present for key in keys)) for name, keys in CRITERIA}
+
+
 # ------------------------------------------------------------------ düzleştirme ve istatistik
 def flatten(trades):
     """İşlem sonuçlarını (mod × varyant) satırlara çevirir; yalnızca dolmuş işlemler."""
@@ -43,6 +71,7 @@ def flatten(trades):
                 "mode", "symbol", "direction", "poi_tf", "grade", "score", "first_seen_t", "actionable",
                 "distance_pct", "order_t", "fill_t", "entry", "stop", "tp1", "tp2", "rr_tp1", "rr_tp2", "stop_pct",
                 "confirm_t", "confirm_status", "ltf_tf")}
+            row.update(criteria_flags(trade.get("score_breakdown")))
             row.update(outcome)
             row["variant"] = variant
             rows.append(row)
@@ -309,7 +338,7 @@ def build_markdown(trades, window, meta=None):
 TRADE_COLUMNS = ["mode", "variant", "symbol", "direction", "poi_tf", "grade", "score", "first_seen_t", "actionable",
                  "distance_pct", "order_t", "confirm_t", "confirm_status", "ltf_tf", "fill_t", "entry", "stop",
                  "tp1", "tp2", "rr_tp1", "rr_tp2", "stop_pct", "exit_reason", "exit_t", "hold_hours", "r_gross",
-                 "r_net", "fee_r", "slip_r", "funding_r"]
+                 "r_net", "fee_r", "slip_r", "funding_r"] + CRITERIA_COLUMNS
 SUMMARY_COLUMNS = ["period", "mode", "variant", "n", "unfilled", "winrate", "avg_win", "avg_loss", "avg_net", "se",
                    "avg_gross", "total_net", "total_gross", "max_dd", "longest_loss_streak", "timeouts", "timeout_r"]
 
