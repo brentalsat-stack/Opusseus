@@ -58,6 +58,7 @@ BT_WEIGHT_LIMIT_SOFT = 1800  # Dakikalık kullanılan ağırlık bunu aşarsa da
 BT_TOUCH_EXPIRY_HOURS = 72  # POI'ye dokunuş / risk limit emrinin dolması için ilk görülmeden itibaren süre
 BT_CONFIRM_FILL_HOURS = 24  # Confirmation'da teyitten sonra LTF OB girişinin dolması için süre
 BT_MAX_HOLD_DAYS = 14  # Açık pozisyon bu süreyi aşarsa piyasadan kapatılır (TIMEOUT)
+BT_CONFIRM_WAIT_HOURS = 72  # Confirmation: POI dokunuşundan sonra teyit (LTF BOS + OB) beklenen azami süre (varsayım; spec'te yok)
 BT_FEE_MAKER_PCT = 0.02  # Limit giriş ve TP çıkışı ücreti (% notional)
 BT_FEE_TAKER_PCT = 0.05  # Stop, BE ve TIMEOUT çıkışı ücreti (% notional)
 BT_SLIPPAGE_PCT = 0.02  # Stop/BE/TIMEOUT çıkışında kayma (% fiyat)
