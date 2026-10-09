@@ -55,6 +55,19 @@ class SeriesReport:
         parts = ", ".join(f"{k.value}={self.count(k)}" for k in IssueKind)
         return f"{self.tf.value}: {self.n_candles} mum; {parts}"
 
+    def format(self, top: int = 15) -> str:
+        """İnsan okunur boşluk raporu: tür sayıları, toplam eksik mum, en büyük eksik boşluklar, hafta sonu boşluk sayısı."""
+        lines = [self.summary()]
+        miss = [i for i in self.issues if i.kind is IssueKind.MISSING]
+        lines.append(f"  MISSING boşluk: {len(miss)}, toplam eksik mum: {sum(i.missing_candles for i in miss)}")
+        wk = [i for i in self.issues if i.kind is IssueKind.WEEKEND_GAP]
+        lines.append(f"  WEEKEND_GAP: {len(wk)} (engelleyici değil)")
+        for i in sorted(miss, key=lambda x: -x.missing_candles)[:top]:
+            lines.append(f"    MISSING {i.start:%Y-%m-%d %H:%M} → {i.end:%Y-%m-%d %H:%M} UTC  ({i.missing_candles} mum)")
+        for i in [x for x in self.issues if x.kind in (IssueKind.DUPLICATE, IssueKind.OUT_OF_ORDER)][:top]:
+            lines.append(f"    {i.kind.value} {i.start:%Y-%m-%d %H:%M} UTC")
+        return "\n".join(lines)
+
     def log(self) -> None:
         (log.info if self.ok else log.warning)(self.summary())
         for i in self.blocking:

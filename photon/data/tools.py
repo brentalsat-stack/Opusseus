@@ -9,10 +9,10 @@ from typing import Iterable
 
 from .cache import CandleStore
 from .models import QuoteCandle, Timeframe
-from .sources import dukascopy, oanda
+from .sources import dukascopy, histdata, oanda
 from .tz import UTC
 
-SOURCES = (oanda.SOURCE, dukascopy.SOURCE)
+SOURCES = (histdata.SOURCE, oanda.SOURCE, dukascopy.SOURCE)
 
 
 def day_range(start: date, end_inclusive: date) -> tuple[datetime, datetime]:
@@ -41,6 +41,8 @@ def fetch(cfg, source: str, pair: str, start: datetime, end: datetime) -> int:
             o = cfg.get("data.backtest.oanda")
             client = oanda.OandaClient(o["rest_host"], o["token_env"])
             return client.download_m1(pair, cfg.get(f"pair_params.{pair}.symbols.oanda"), start, end, store)
+        if source == histdata.SOURCE:
+            raise ValueError("HISTDATA dosya kaynaklıdır: `python -m photon import-histdata` kullanın")
         raise ValueError(f"bilinmeyen kaynak {source!r}; geçerli: {', '.join(SOURCES)}")
     finally:
         store.close()
@@ -70,3 +72,15 @@ def export_csv(candles: Iterable[QuoteCandle], path: str | Path) -> int:
                                            c.ask.open, c.ask.high, c.ask.low, c.ask.close)), c.n_ticks])
             n += 1
     return n
+
+
+def import_histdata(cfg, pair: str, path: str | None = None) -> "histdata.ImportReport":
+    """HistData M1 (bid) dosyasını önbelleğe alır; ask = bid + costs.spread_pips."""
+    cfg.require("hist_histdata")
+    store = open_store(cfg)
+    try:
+        return histdata.import_file(path or cfg.get("data.backtest.histdata.path"), pair, cfg.pip_size(pair),
+                                    Decimal(str(cfg.get("costs.spread_pips"))),
+                                    cfg.get("data.backtest.histdata.utc_offset_hours"), store)
+    finally:
+        store.close()

@@ -71,6 +71,14 @@ def int_ge(minimum: int) -> Check:
     return check
 
 
+def int_in(lo: int, hi: int) -> Check:
+    def check(v: Any) -> str | None:
+        if not isinstance(v, int) or isinstance(v, bool):
+            return f"{v!r} tamsayı olmalı"
+        return None if lo <= v <= hi else f"{v} [{lo}, {hi}] aralığında olmalı"
+    return check
+
+
 def pct_of_one(v: Any) -> str | None:  # RK-R001: 0 < risk ≤ %1
     if not _is_num(v):
         return f"{v!r} sayı olmalı"
@@ -181,6 +189,11 @@ MODULES: dict[str, ModuleSpec] = {
         R(f"pair_params.{PAIR}.units_per_lot", num_gt(0)),
         R("account.currency", non_empty_str),
     ), depends_on=("risk",)),
+    "risk_stops": ModuleSpec((  # SL-R001..R003, SD-R008, EN-R009
+        R("entry_price_mode", one_of("DISTAL", "EQ", "FIXED_SL")),
+        R("fixed_sl_pips", num_ge(2), when=lambda c: c.get("entry_price_mode") == "FIXED_SL"),
+        R("sl_buffer_pips", num_ge(0)),
+    ), depends_on=("risk",)),
     "session": ModuleSpec((  # SS-R001
         R("sessions_london", windows),
     ), depends_on=("data",)),
@@ -211,10 +224,6 @@ MODULES: dict[str, ModuleSpec] = {
     ), depends_on=("structure",)),
     "strategy": ModuleSpec((  # POI-R004, EN-R001..R009
         R("entry_type", one_of("RISK", "CONFIRMATION", "DOUBLE_CONFIRMATION")),
-        R("entry_price_mode", one_of("DISTAL", "EQ", "FIXED_SL")),
-        R("fixed_sl_pips", num_ge(2),
-          when=lambda c: c.get("entry_price_mode") == "FIXED_SL"),
-        R("sl_buffer_pips", num_ge(0)),
         R("decisional_flip_requires_sweep", is_bool),
         R("require_pd_alignment", is_bool),
         R("counter_htf_require_double_bos", is_bool),
@@ -224,7 +233,7 @@ MODULES: dict[str, ModuleSpec] = {
         R("range_extreme_filter.range_tf", one_of("D1", "H4", "M15")),
         R("swing_hold_confirmation", one_of("H4_TREND_CHANGE", "H4_CHOCH", "M15_CHOCH")),
         *(R(f"poi_scoring.weights.{k}", num_gt(0)) for k in POI_CRITERIA),
-    ), depends_on=("structure", "zones", "liquidity", "risk", "risk_sizing",
+    ), depends_on=("structure", "zones", "liquidity", "risk", "risk_sizing", "risk_stops",
                    "session", "session_blackout")),
     "management": ModuleSpec((  # MG-R001..R006
         R("risk_removal_method", one_of("PARTIAL", "BE_AT_FIRST_EXEC_BOS")),
@@ -235,27 +244,32 @@ MODULES: dict[str, ModuleSpec] = {
         R("target_allocation.counter_trend.allocation_pct", pct_0_100),
         R("target_allocation.range.allocation_pct", pct_0_100),
     ), depends_on=("risk",)),
-    "signals": ModuleSpec((  # sinyal çıktısı: haber uyarısı, emir ömrü
+    "news": ModuleSpec((  # DECISIONS §6: engellemez, uyarı notu
         R("news_filter.mode", one_of("WARN_ONLY")),
         R("news_filter.provider", one_of("FOREXFACTORY")),
+        R("news_filter.feed_url", non_empty_str),
         R("news_filter.currencies", non_empty_str_list),
         R("news_filter.impact", one_of("HIGH")),
         R("news_filter.scope", one_of("ALL_SIGNALS_OF_DAY")),
+        R("day_reset.tz", iana_tz),
+    ), depends_on=("data",)),
+    "signals": ModuleSpec((  # sinyal çıktısı: emir ömrü, bildirim
         R("order_expiry.mode"),
         R("notifications", non_empty_str_list),
-    ), depends_on=("strategy", "management")),
+    ), depends_on=("strategy", "management", "news")),
     "execution": ModuleSpec((  # yalnızca adaptör iskeleti; otomatik emir kapalı
         R("mode.auto_order", is_false),
     )),
     "backtest": ModuleSpec((  # §22
         R("intrabar_policy.resolver", one_of("TICK")),
         R("intrabar_policy.fallback", one_of("STOP_FIRST")),
-        R("costs.spread", one_of("FROM_DATA")),
+        R("costs.spread", one_of("FIXED", "FROM_DATA")),
+        R("costs.spread_pips", num_ge(0), when=lambda c: (c.get("costs") or {}).get("spread") == "FIXED"),
         R("costs.commission.model", one_of("PCT_OF_NOTIONAL")),
         R("costs.commission.rate_pct", num_ge(0)),
         R("costs.commission.min_per_order", num_ge(0)),
         R("costs.commission.currency", non_empty_str),
-        R("data.backtest.primary"),
+        R("data.backtest.primary", one_of("HISTDATA", "OANDA_PRACTICE", "DUKASCOPY")),
     ), depends_on=("signals",)),
     "data_boundaries": ModuleSpec((  # Aşama 1: Q-D01, Q-D02
         R("candle_boundaries.tz", iana_tz),
@@ -267,6 +281,11 @@ MODULES: dict[str, ModuleSpec] = {
         R("data.backtest.cache.db", non_empty_str),
         R("data.backtest.cache.raw_dir", non_empty_str),
     ), depends_on=("data",)),
+    "hist_histdata": ModuleSpec((  # DECISIONS §7: dosya kaynaklı, bid-only, sabit EST
+        R("data.backtest.histdata.path", non_empty_str),
+        R("data.backtest.histdata.utc_offset_hours", int_in(-12, 14)),
+        R("costs.spread_pips", num_ge(0)),
+    ), depends_on=("data_cache",)),
     "hist_dukascopy": ModuleSpec((
         R("data.backtest.dukascopy.base_url", non_empty_str),
         R("data.backtest.dukascopy.request_delay_s", num_ge(0)),

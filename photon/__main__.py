@@ -20,16 +20,20 @@ def main(argv: list[str] | None = None) -> int:
                            ("data-check", "önbellekteki M1/M15 serisini doğrula (düzeltmeden raporla)")):
         sp = sub.add_parser(name, help=helptext)
         sp.add_argument("--config", default=str(DEFAULT_PATH))
-        sp.add_argument("--source", choices=["OANDA_PRACTICE", "DUKASCOPY"],
+        sp.add_argument("--source", choices=["HISTDATA", "OANDA_PRACTICE", "DUKASCOPY"],
                         help="verilmezse config data.backtest.primary")
         sp.add_argument("--pair", default=None, help="verilmezse config pairs[0]")
         sp.add_argument("--start", type=date.fromisoformat, required=True)
         sp.add_argument("--end", type=date.fromisoformat, required=True, help="dahil")
         if name == "fetch":
             sp.add_argument("--csv", help="indirilen aralığı CSV'ye yaz")
+    ih = sub.add_parser("import-histdata", help="HistData M1 bid CSV'sini önbelleğe al (UTC'ye çevirir, ask=bid+spread)")
+    ih.add_argument("--config", default=str(DEFAULT_PATH))
+    ih.add_argument("--pair")
+    ih.add_argument("--path", help="verilmezse config data.backtest.histdata.path")
     st = sub.add_parser("structure", help="yapı olaylarını bul: CSV + işaretli grafik (doğrulama)")
     st.add_argument("--config", default=str(DEFAULT_PATH))
-    st.add_argument("--source", choices=["OANDA_PRACTICE", "DUKASCOPY"])
+    st.add_argument("--source", choices=["HISTDATA", "OANDA_PRACTICE", "DUKASCOPY"])
     st.add_argument("--pair")
     st.add_argument("--tf", required=True, choices=["D1", "H4", "M15", "M1"])
     st.add_argument("--start", type=date.fromisoformat, required=True)
@@ -39,6 +43,15 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
 
     cfg = load_config(args.config)
+    if args.cmd == "import-histdata":
+        from .data import tools
+        from .logging_setup import setup_from_config
+        setup_from_config(cfg)
+        rep = tools.import_histdata(cfg, args.pair or cfg.pairs[0], args.path)
+        print(rep.summary())
+        for n, why in rep.invalid[:10]:
+            print(f"  geçersiz satır {n}: {why}")
+        return 0 if rep.clean else 3
     if args.cmd in ("fetch", "data-check"):
         return _data_cmd(cfg, args)
     if args.cmd == "structure":
@@ -95,9 +108,10 @@ def _structure_cmd(cfg, args) -> int:
         seed, hist = load_seed_yaml(args.seed, candles)
         eng = run_structure(candles, params, seed, hist, resolver, start)
     else:
-        first = next((i for i, c in enumerate(candles) if c.open_time >= start), len(candles))
-        if first == 0:
-            print(f"uyarı: warm-up verisi yok ({warm_days} gün gerekli); yapı geç kurulur", file=sys.stderr)
+        have = (start - candles[0].open_time).days
+        if have < warm_days:
+            print(f"UYARI warm-up: {tf.value} için {warm_days} gün gerekli, veri {candles[0].open_time:%Y-%m-%d} "
+                  f"tarihinde başlıyor ({max(have, 0)} gün) → mevcut verinin tamamı warm-up", file=sys.stderr)
         eng = run_structure_auto(candles, params, start, resolver)
     first = next((i for i, c in enumerate(candles) if c.open_time >= start), 0)
     out = Path(args.out)
@@ -129,7 +143,7 @@ def _data_cmd(cfg, args) -> int:
         return 0
     m1 = tools.load_m1(cfg, source, pair, start, end)
     rep1 = check_series(m1, Timeframe.M1)
-    print(rep1.summary())
+    print(rep1.format())
     rep1.log()
     rep15 = check_series(resample(m1, Timeframe.M15), Timeframe.M15)
     print(rep15.summary())

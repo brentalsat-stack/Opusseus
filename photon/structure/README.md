@@ -25,12 +25,12 @@ Yapı yalnızca kapanmış mumlarla güncellenir. Bearish mantık, bullish mant�
 
 | ID | Durum | Uygulama |
 |---|---|---|
-| Q-S01 | KARAR | **Otomatik warm-up:** `config.warmup_period` (gün; D1/H4 365, M15 30, M1 7 — *kullanıcı kararı, kursta yok*). Trend ilk kapanışlı swing BOS'a kadar UNDEFINED; warm-up olayları `warmup=True` (sinyal üretmez, `StructureEvent.signal_capable`). **Elle seed (YAML) seçeneği duruyor** (`--seed`). |
+| Q-S01 | KARAR | **Otomatik warm-up** (HistData verisi 3 Ocak 2021'de başlıyor → D1/H4 için 1 yıl YOK, mevcut verinin tamamı warm-up; CLI bunu uyarı olarak yazar): `config.warmup_period` (gün; D1/H4 365, M15 30, M1 7 — *kullanıcı kararı, kursta yok*). Trend ilk kapanışlı swing BOS'a kadar UNDEFINED; warm-up olayları `warmup=True` (sinyal üretmez, `StructureEvent.signal_capable`). **Elle seed (YAML) seçeneği duruyor** (`--seed`). |
 | Q-S02 | KARAR | Zincirde en son inside bar (T-MIS @33:21). |
 | Q-S03 | KARAR | Aday yoksa referans değişmez / CHoCH sonrası referans boş kalabilir (log uyarısı). |
-| Q-S04 | KARAR | Outside bar sırası alt TF ile çözülür: `SubTfResolver` (M15→M1; aynı dakikada ikisi de → tick; M1→tick). Alt veri yoksa/çözülemezse **`OUTSIDE_BAR` olayı (sinyal yok)**; "CHoCH önce" varsayımı kaldırıldı. |
+| Q-S04 | KARAR | Outside bar sırası alt TF ile çözülür: `SubTfResolver` (M15→M1; aynı dakikada ikisi de → tick; M1→tick). HistData'da tick yok → aynı dakikada ikisi de kırılırsa çözülemez. Alt veri yoksa/çözülemezse **`OUTSIDE_BAR` olayı (sinyal yok)**; "CHoCH önce" varsayımı kaldırıldı. |
 | Q-S05 | KARAR | Tek BOS. Çift BOS kodlanmadı (`NotImplementedError`). |
-| Q-S06 | Aşama 3 | P/D aralığı. |
+| Q-S06 | Aşama 3 | Öneri: onaylı swing aralığı (`structure/pd.py`; bkz. `photon/risk/README.md`). |
 
 Yeni açık sorular (aşağıda): Q-S07, Q-S08.
 

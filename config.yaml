@@ -108,6 +108,7 @@ blackout: {tz: UTC, start: "21:00", end: "23:00"}   # C-09 KARAR: GMT/UTC sabit
 news_filter:                            # DECISIONS §6
   mode: WARN_ONLY                       # sinyal ENGELLENMEZ; uyarı notu
   provider: FOREXFACTORY
+  feed_url: "https://nfs.faireconomy.media/ff_calendar_thisweek.json"   # ForexFactory haftalık dışa aktarım (yalnızca bu hafta; tarihçe yok)
   currencies: [EUR, USD]
   impact: HIGH
   scope: ALL_SIGNALS_OF_DAY             # o gün yüksek etkili haber varsa günün tüm sinyallerine not
@@ -119,7 +120,8 @@ intrabar_policy:                        # DECISIONS §7
   resolver: TICK
   fallback: STOP_FIRST                  # tick yoksa stop sayılır; sayısı raporlanır
 costs:
-  spread: FROM_DATA                     # bid/ask'tan
+  spread: FIXED                         # DECISIONS §7: veri yalnız bid → sabit spread (ask = bid + spread)
+  spread_pips: 0.4                      # KULLANICI KARARI
   commission:                           # IBKR forex (Aşama 0 cevabı); config'den değiştirilebilir
     model: PCT_OF_NOTIONAL
     rate_pct: 0.002                     # işlem tutarının %0.002'si (0.2 bps)
@@ -139,8 +141,8 @@ data:
   live: {provider: IBKR, library: ib_async, venue: IDEALPRO, read_only: true,
          host: 127.0.0.1, port: 4001, client_id: 1}   # IB Gateway canlı (paper 4002, TWS 7496/7497)
   backtest:
-    primary: OANDA_PRACTICE             # DECISIONS §1; hesap açılamazsa fallback
-    fallback: DUKASCOPY
+    primary: HISTDATA                   # DECISIONS §7 (fiili): HistData.com M1 bid, 2021. Dukascopy/OANDA kodda kalır, varsayılan değil.
+    histdata: {path: data_samples/histdata/DAT_ASCII_EURUSD_M1_2021.csv, utc_offset_hours: -5}   # sabit EST, DST yok
     oanda: {rest_host: api-fxpractice.oanda.com, token_env: OANDA_API_TOKEN}   # jeton ortam değişkeninde
     dukascopy: {base_url: "https://datafeed.dukascopy.com/datafeed", request_delay_s: 1.5, max_retries: 6}
     cache: {db: data_cache/photon.sqlite, raw_dir: data_cache/raw}

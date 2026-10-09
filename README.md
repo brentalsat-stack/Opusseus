@@ -53,6 +53,18 @@ Kaynakta/karar dosyasında olmayan hiçbir değere varsayılan atanmaz. Kendi de
   parite eklemek config'e girdi eklemektir, kod değişmez.
 - Logging: ekran + döner dosya (`logging.file`, UTC damgalı) — `photon.logging_setup.setup_from_config(cfg)`.
 
+### Veri kaynağı (güncel): HistData.com M1 bid
+
+Fiili backtest verisi `data_samples/histdata/DAT_ASCII_EURUSD_M1_2021.csv` (HistData, `YYYYMMDD HHMMSS;O;H;L;C;V`, **sabit EST=UTC−5, DST yok**).
+İçe aktarıcı önce UTC'ye çevirir, NY-17:00 mum sınırları sonra zoneinfo ile hesaplanır. Veri yalnız bid: `ask = bid + costs.spread_pips` (0,4 pip, kullanıcı kararı).
+Tick yok → aynı mumda stop+hedef = stop (kötümser; Aşama 7'de sayısı raporlanır). Dukascopy/OANDA kodda durur, varsayılan değildir.
+
+```bash
+python -m photon import-histdata                                        # dosya → önbellek (tekrar/sırasız/geçersiz satırları raporlar)
+python -m photon data-check --start 2021-01-04 --end 2021-12-31         # boşluk raporu
+python -m photon structure --tf M15 --start 2021-09-01 --end 2021-09-30 --out structure_out
+```
+
 ### Veri katmanı (Aşama 1)
 
 ```bash
@@ -76,6 +88,10 @@ aynı mum çözümü Aşama 7'de Dukascopy tick ile; IBKR 127.0.0.1:4001 (canlı
 
 `photon/structure/` — MS-R001..R009, R014. Kural→kod→test tablosu ve **Q-S01..Q-S06 açık soru raporları**: `photon/structure/README.md`.
 Otomatik warm-up (Q-S01), outside bar çözümü (Q-S04), açık sorular Q-S07/Q-S08. Doğrulama çıktısı: `python -m photon structure --tf M15 --start ... --end ...`.
+
+### Aşama 3 (P/D, risk, seans, izin matrisi)
+
+Kural→kod→test tablosu ve **Q-P1..Q-P7 açık soruları**: `photon/risk/README.md`.
 
 ### Açık sorular
 
