@@ -83,19 +83,23 @@ def format_errors(reports: list[ModuleReport]) -> str:
     return "\n".join(lines)
 
 
+def collect_failures(cfg: Config, *modules: str) -> list[ModuleReport]:
+    """Hazır olmayan modüller + hazır olmayan bağımlılıklarının raporları."""
+    bad = [r for r in (validate_module(cfg, m) for m in modules) if not r.ok]
+    extra: list[ModuleReport] = []
+    for r in bad:
+        for dep in r.blocked_by:
+            d = _own_report(cfg, dep)
+            if not d.ok and all(d.module != x.module for x in bad + extra):
+                extra.append(d)
+    return bad + extra
+
+
 def require(cfg: Config, *modules: str) -> None:
     """Her modül için hazır değilse ConfigError (tüm eksikler tek mesajda)."""
-    reports = [validate_module(cfg, m) for m in modules]
-    bad = [r for r in reports if not r.ok]
-    if bad:
-        # bağımlılık kaynaklı eksikleri de görünür kıl
-        extra = []
-        for r in bad:
-            for dep in r.blocked_by:
-                d = _own_report(cfg, dep)
-                if not d.ok and all(d.module != x.module for x in bad + extra):
-                    extra.append(d)
-        raise ConfigError(bad + extra)
+    failures = collect_failures(cfg, *modules)
+    if failures:
+        raise ConfigError(failures)
 
 
-__all__ = ["ConfigError", "ModuleReport", "validate_module", "validate_all", "require", "MISSING"]
+__all__ = ["ConfigError", "ModuleReport", "validate_module", "validate_all", "require", "collect_failures", "MISSING"]

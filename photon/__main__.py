@@ -4,8 +4,8 @@ from __future__ import annotations
 import argparse
 import sys
 
-from .config import DEFAULT_PATH, MODULES, find_required, load_config, validate_all, validate_module
-from .config.validator import format_errors
+from .config import DEFAULT_PATH, MODULES, find_required, load_config, validate_all
+from .config.validator import collect_failures, format_errors
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -26,8 +26,7 @@ def main(argv: list[str] | None = None) -> int:
     for p in pending:
         print(f"  - {p}")
     if args.module:
-        bad = [validate_module(cfg, m) for m in args.module]
-        bad = [r for r in bad if not r.ok]
+        bad = collect_failures(cfg, *args.module)
         if bad:
             print("\n" + format_errors(bad), file=sys.stderr)
             return 2
