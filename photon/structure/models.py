@@ -25,6 +25,7 @@ class EventType(str, Enum):
     BOS = "BOS"                           # MS-R006 / MS-R009 (trend değişimi bearish/bullish BOS)
     SWING_CONFIRMED = "SWING_CONFIRMED"   # MS-R008 (bilgi amaçlı; kural olayı değil)
     INTERNAL_REF = "INTERNAL_REF"         # MS-R003 yeni internal referans (bilgi amaçlı)
+    OUTSIDE_BAR = "OUTSIDE_BAR"           # Q-S04: sırası çözülemeyen mum — SİNYAL ÜRETMEZ
 
 
 class Strength(str, Enum):
@@ -57,8 +58,14 @@ class StructureEvent:
     time: datetime              # olayı doğuran mumun open_time (UTC)
     by_close: bool
     ref: Optional[SwingPoint] = None
-    note: str = ""              # örn. "OUTSIDE_BAR" (Q-S04)
+    note: str = ""              # örn. "OUTSIDE_BAR_RESOLVED" (Q-S04)
     rule: str = ""              # kural ID'si
+    warmup: bool = False        # True: warm-up döneminde oluştu → yalnızca yapıyı kurar, sinyal üretmez (Q-S01)
+
+    @property
+    def signal_capable(self) -> bool:
+        """Strateji katmanı yalnızca bunlara bakar: warm-up dışı CHoCH/BOS (OUTSIDE_BAR hiçbir zaman sinyal değildir)."""
+        return not self.warmup and self.type in (EventType.CHOCH, EventType.BOS)
 
 
 @dataclass(frozen=True)

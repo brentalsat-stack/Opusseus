@@ -75,7 +75,7 @@ aynı mum çözümü Aşama 7'de Dukascopy tick ile; IBKR 127.0.0.1:4001 (canlı
 ### Market structure (Aşama 2)
 
 `photon/structure/` — MS-R001..R009, R014. Kural→kod→test tablosu ve **Q-S01..Q-S06 açık soru raporları**: `photon/structure/README.md`.
-Doğrulama çıktısı: `python -m photon structure --tf M15 --start ... --end ... --seed seed.yaml`.
+Otomatik warm-up (Q-S01), outside bar çözümü (Q-S04), açık sorular Q-S07/Q-S08. Doğrulama çıktısı: `python -m photon structure --tf M15 --start ... --end ...`.
 
 ### Açık sorular
 

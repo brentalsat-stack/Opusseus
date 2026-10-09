@@ -36,6 +36,10 @@ min_swing_candles: 2                 # C-05
 trend_change_confirmation: SINGLE_BOS   # D-14 KARAR
 counter_htf_require_double_bos: true    # D-15 KARAR: 4H'ye karşı işlemde M15'te çift BOS (HH+HL)
 
+# Q-S01 KULLANICI KARARI (kursta süre yok): otomatik warm-up, TF bazında geriden başlama (gün).
+# Trend ilk kapanışlı swing BOS'a kadar UNDEFINED; warm-up olayları yalnızca yapıyı kurar, sinyal üretmez.
+warmup_period: {D1: 365, H4: 365, M15: 30, M1: 7}     # D1/H4 ≥ 1 yıl, M15 ≥ 1 ay, M1 ≥ 1 hafta
+
 # --- Zon / likidite / POI (DECISIONS v2 §3) --------------------------------
 zone_draw_mode:                                 # D-01 KARAR: eğitmen kombinasyonu
   H4: RANGE                                     # tüm range

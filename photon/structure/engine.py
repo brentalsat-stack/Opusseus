@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from datetime import datetime
 from decimal import Decimal
 from typing import Optional
 
@@ -32,8 +33,16 @@ class _Run:
 
 
 class StructureEngine:
-    def __init__(self, tf: Timeframe, params: StructureParams):
-        self.tf, self.p = tf, params
+    def __init__(self, tf: Timeframe, params: StructureParams, resolver=None,
+                 live_from: Optional[datetime] = None):
+        """`resolver`: outside bar sırası için alt TF çözücüsü (`SubTfResolver`); yoksa OUTSIDE_BAR işaretlenir (Q-S04).
+        `live_from`: bu zamandan önceki olaylar warm-up sayılır (sinyal üretmez; Q-S01)."""
+        self.tf, self.p, self.resolver, self.live_from = tf, params, resolver, live_from
+        self.auto = False               # otomatik warm-up (Q-S01) — cold start tanımsız, ilk BOS'a kadar UNDEFINED
+        self._bh: Optional[_Run] = None  # bootstrap: en yüksek tepe
+        self._bl: Optional[_Run] = None  # bootstrap: en düşük dip (ham fiyat)
+        self._bh_min: Optional[Decimal] = None
+        self._bl_max: Optional[Decimal] = None
         self.H: list[Decimal] = []
         self.L: list[Decimal] = []
         self.C: list[Decimal] = []
@@ -105,18 +114,80 @@ class StructureEngine:
             if any(x.type in (EventType.BOS, EventType.CHOCH) for x in ev):
                 raise ValueError(f"seed tutarsız: history[{t}] seed'den sonra {ev[0].type.value} üretiyor")
 
+    def start_auto(self) -> None:
+        """Otomatik warm-up (Q-S01): trend ilk kapanışlı swing BOS'a kadar UNDEFINED; o ana kadar olay yok."""
+        if self.T:
+            raise RuntimeError("motor zaten başlatıldı")
+        self.auto = True
+
+    @property
+    def ready(self) -> bool:
+        """Trend tanımlı VE warm-up bitti → sinyal üretilebilir."""
+        return self.s != 0 and (self.live_from is None or (bool(self.T) and self.T[-1] >= self.live_from))
+
     # ---- ana giriş ----
     def update(self, c: Candle) -> list[StructureEvent]:
         i = self._ingest(c)
         if self.s == 0:
-            return []  # Seed yok → olay yok (U-15)
-        ev = self._step_swing(i) + self._step_internal(i)
+            ev = self._bootstrap(i) if self.auto else []   # Seed/auto yok → olay yok (U-15)
+        else:
+            ev = self._step_swing(i) + self._step_internal(i)
         self.events.extend(ev)
         return ev
 
+    # ---- bootstrap: ilk BOS'a kadar (Q-S07: MS-R006/R008'in iki yönlü uygulanması) ----
+    def _bootstrap(self, t: int) -> list[StructureEvent]:
+        pip = self.p.pipette
+        for s, run in ((1, self._bh), (-1, self._bl)):
+            # onaylı swing high/low kapanışla kırıldı mı? (MS-R006) → trend belli olur, kutu kuralı (MS-R007)
+            if run is not None and run.confirmed and self._cl(t, s) - s * run.price >= pip:
+                k = min(range(run.index, t + 1), key=lambda j: (self._lo(j, s), j))
+                self.s = s
+                self.strong = (s * self._lo(k, s), k)
+                self.run = _Run(s * self._hi(t, s), t, False)
+                self._min_after = None
+                old = self._point(Kind.HIGH if s > 0 else Kind.LOW, run.price, run.index, Strength.WEAK, True)
+                self.e = s                       # iç yapı BOS yönünde başlar; referans = kırılım öncesi en yakın aday
+                self.ipend = None
+                self.iref = None
+                for i in range(t - 1, run.index - 1, -1):
+                    if self._lo(i, s) - self._lo(i + 1, s) < pip:
+                        self.iref = (s * self._lo(i, s), i)
+                        break
+                return [self._mk_event(EventType.BOS, self._trend(s), run.price, t, True, old, "BOOTSTRAP", "MS-R006/R007")]
+        thr = self.p.min_pullback_pips * self.p.pip_size
+        for s in (1, -1):
+            run = self._bh if s > 0 else self._bl
+            if run is not None and run.confirmed:
+                continue                          # onaylı uç sabit; wick aşımı = sweep
+            hi = self._hi(t, s)
+            if run is None or hi - s * run.price >= pip:
+                new = _Run(s * hi, t, False)
+                if s > 0:
+                    self._bh, self._bh_min = new, None
+                else:
+                    self._bl, self._bl_max = new, None
+                continue
+            lo = self._lo(t, s)
+            cur = self._bh_min if s > 0 else self._bl_max
+            cur = lo if cur is None else min(cur, lo)
+            if s > 0:
+                self._bh_min = cur
+            else:
+                self._bl_max = cur
+            pull = s * run.price - cur
+            if pull >= thr if self.p.threshold_inclusive else pull > thr:
+                conf = _Run(run.price, run.index, True)   # MS-R008
+                if s > 0:
+                    self._bh = conf
+                else:
+                    self._bl = conf
+        return []
+
     # ---- swing: MS-R006, R007, R008, R009, R014 ----
     def _mk_event(self, typ, dir_, level, idx, by_close, ref=None, note="", rule="") -> StructureEvent:
-        return StructureEvent(self.tf, typ, dir_, level, idx, self.T[idx], by_close, ref, note, rule)
+        warm = self.live_from is not None and self.T[idx] < self.live_from
+        return StructureEvent(self.tf, typ, dir_, level, idx, self.T[idx], by_close, ref, note, rule, warm)
 
     def _point(self, kind: Kind, price: Decimal, idx: int, strength: Strength, confirmed: bool) -> SwingPoint:
         return SwingPoint(self.tf, price, idx, kind, strength, confirmed)
@@ -164,38 +235,68 @@ class StructureEngine:
         return []
 
     # ---- internal: MS-R002, R003, R004, R005 ----
+    def _resolve_order(self, t: int) -> Optional[str]:
+        """Outside bar (Q-S04): hangi seviye önce kırıldı? 'REF' | 'PEND' | None (çözülemedi)."""
+        if self.resolver is None:
+            return None
+        ref_p, pend_p = self.iref[0], self.ipend[0]
+        up, down = (pend_p, ref_p) if self.e > 0 else (ref_p, pend_p)
+        first = self.resolver.first_touch(self.tf, self.T[t], up, down, self.p.pipette)
+        if first is None:
+            return None
+        return ("PEND" if first == "UP" else "REF") if self.e > 0 else ("REF" if first == "UP" else "PEND")
+
+    def _apply_ref_break(self, t: int, note: str) -> list[StructureEvent]:
+        """MS-R005: geçerli internal low wick ile kırıldı → CHoCH; yeni referans = en yakın internal high (MS-R003 simetrik)."""
+        e, pip = self.e, self.p.pipette
+        ref_price, ref_idx = self.iref
+        new_ref = None
+        for i in range(t - 1, ref_idx - 1, -1):
+            if self._hi(i + 1, e) - self._hi(i, e) < pip:        # MS-R002: i+1, i'nin high'ını kıramadı
+                new_ref = (e * self._hi(i, e), i)
+                break
+        if new_ref is None:
+            log.warning("%s idx=%d: CHoCH sonrası internal referans bulunamadı (Q-S03)", self.tf.value, t)
+        self.e, self.iref, self.ipend = -e, new_ref, None
+        return [self._mk_event(EventType.CHOCH, self._trend(self.e), ref_price, t, False, None, note, "MS-R005")]
+
+    def _apply_pend_break(self, t: int) -> list[StructureEvent]:
+        """MS-R003: internal high wick ile kırıldı → yeni internal low = kırılımdan önceki EN YAKIN aday low."""
+        e, pip = self.e, self.p.pipette
+        pend_idx = self.ipend[1]
+        found = None
+        for i in range(t - 1, pend_idx - 1, -1):
+            if self._lo(i, e) - self._lo(i + 1, e) < pip:        # i+1, i'nin low'unu kıramadı
+                found = (e * self._lo(i, e), i)
+                break
+        self.ipend = None
+        if found is None:
+            log.warning("%s idx=%d: internal low adayı bulunamadı; referans değişmedi (Q-S03)", self.tf.value, t)
+            return []
+        self.iref = found
+        return [self._mk_event(EventType.INTERNAL_REF, self._trend(e), found[0], t, False, None, rule="MS-R003")]
+
     def _step_internal(self, t: int) -> list[StructureEvent]:
         e, pip = self.e, self.p.pipette
         hi, lo = self._hi(t, e), self._lo(t, e)
         broke_ref = self.iref is not None and e * self.iref[0] - lo >= pip
         broke_pend = self.ipend is not None and hi - e * self.ipend[0] >= pip
+        if broke_ref and broke_pend:
+            # Q-S04: mum içi sıra alt TF verisiyle çözülür; çözülemezse varsayım YOK → OUTSIDE_BAR (sinyal yok, durum değişmez)
+            order = self._resolve_order(t)
+            if order is None:
+                return [self._mk_event(EventType.OUTSIDE_BAR, Trend.UNDEFINED, self.iref[0], t, False,
+                                       None, "UNRESOLVED", "MS-R005")]
+            if order == "REF":
+                return self._apply_ref_break(t, "OUTSIDE_BAR_RESOLVED")
+            evs = self._apply_pend_break(t)       # önce high kırıldı → yeni referans; sonra low da yeni referansı kırdıysa CHoCH
+            if self.iref is not None and e * self.iref[0] - lo >= pip:
+                evs += self._apply_ref_break(t, "OUTSIDE_BAR_RESOLVED")
+            return evs
         if broke_ref:
-            # MS-R005: geçerli internal low wick ile kırıldı → CHoCH; yeni referans = en yakın internal high (MS-R003 simetrik)
-            ref_price, ref_idx = self.iref
-            new_ref = None
-            for i in range(t - 1, ref_idx - 1, -1):
-                if self._hi(i + 1, e) - self._hi(i, e) < pip:        # MS-R002: i+1, i'nin high'ını kıramadı
-                    new_ref = (e * self._hi(i, e), i)
-                    break
-            if new_ref is None:
-                log.warning("%s idx=%d: CHoCH sonrası internal referans bulunamadı (Q-S03)", self.tf.value, t)
-            self.e, self.iref, self.ipend = -e, new_ref, None
-            note = "OUTSIDE_BAR" if broke_pend else ""
-            return [self._mk_event(EventType.CHOCH, self._trend(self.e), ref_price, t, False, None, note, "MS-R005")]
+            return self._apply_ref_break(t, "")
         if broke_pend:
-            # MS-R003: internal high wick ile kırıldı → yeni internal low = kırılımdan önceki EN YAKIN aday low
-            pend_price, pend_idx = self.ipend
-            found = None
-            for i in range(t - 1, pend_idx - 1, -1):
-                if self._lo(i, e) - self._lo(i + 1, e) < pip:        # i+1, i'nin low'unu kıramadı
-                    found = (e * self._lo(i, e), i)
-                    break
-            self.ipend = None
-            if found is None:
-                log.warning("%s idx=%d: internal low adayı bulunamadı; referans değişmedi (Q-S03)", self.tf.value, t)
-                return []
-            self.iref = found
-            return [self._mk_event(EventType.INTERNAL_REF, self._trend(e), found[0], t, False, None, rule="MS-R003")]
+            return self._apply_pend_break(t)
         # MS-R002: yeni mum önceki mumun high'ını kıramadıysa önceki mumun high'ı aday internal high
         if self.ipend is None and t >= 1 and (self.iref is None or t - 1 > self.iref[1]):
             if hi - self._hi(t - 1, e) < pip:

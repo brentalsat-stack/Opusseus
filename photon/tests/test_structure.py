@@ -252,10 +252,170 @@ def test_choch_only_first_break_and_new_reference_is_nearest_high():
     assert types(e.update(bar(7, 21, -4, c=15)), EventType.CHOCH)
 
 
-def test_outside_bar_flagged_q_s04():
+def test_outside_bar_unresolved_gives_no_signal_q_s04():
     e = ie([(5, 0), (20, 8), (30, 18), (28, 12)])
-    (ch,) = types(e.update(bar(4, 35, -3, c=10)), EventType.CHOCH)   # hem high'ı hem low'u kırdı
-    assert ch.note == "OUTSIDE_BAR"
+    before = (e.iref, e.ipend, e.e)
+    evs = e.update(bar(4, 35, -3, c=10))                 # hem high'ı hem low'u kırdı, alt veri yok
+    assert [x.type for x in evs] == [EventType.OUTSIDE_BAR] and evs[0].note == "UNRESOLVED"
+    assert not any(x.signal_capable for x in evs)        # o mumdan sinyal yok
+    assert (e.iref, e.ipend, e.e) == before and e.state().internal_trend is Trend.BULL
+
+
+def m1(minute_offset, bar_idx, hi_pips=None, lo_pips=None):
+    """bar_idx'inci H4 mumunun içinde bir M1 mum; yalnızca verilen uçlar uç değer, gövde ortada."""
+    from photon.data import OHLC, QuoteCandle
+    t = bar(bar_idx, 0, 0).open_time + timedelta(minutes=minute_offset)
+    hi = px(hi_pips if hi_pips is not None else 20)
+    lo = px(lo_pips if lo_pips is not None else 20)
+    mid = px(20)
+    o = OHLC(mid, max(hi, mid), min(lo, mid), mid)
+    return QuoteCandle("EURUSD", Timeframe.M1, t, o, o)
+
+
+def resolver(cands, ticks=None):
+    from photon.data import PriceSide, SubTfResolver
+    return SubTfResolver(cands, PriceSide.BID, ticks)
+
+
+def ie_r(rows, res, **kw):
+    e = StructureEngine(Timeframe.H4, params(**{**BIG, **kw}), resolver=res)
+    e.start(bars(rows), ISEED)
+    return e
+
+
+def test_outside_bar_resolved_ref_first_gives_choch():
+    res = resolver([m1(0, 4, lo_pips=-3), m1(1, 4, hi_pips=35)])         # önce low (ref), sonra high
+    e = ie_r([(5, 0), (20, 8), (30, 18), (28, 12)], res)
+    evs = e.update(bar(4, 35, -3, c=10))
+    (ch,) = types(evs, EventType.CHOCH)
+    assert ch.note == "OUTSIDE_BAR_RESOLVED" and ch.dir is Trend.BEAR and ch.signal_capable
+    assert e.state().internal_trend is Trend.BEAR
+
+
+def test_outside_bar_resolved_pend_first_updates_ref_then_choch():
+    res = resolver([m1(0, 5, hi_pips=35), m1(1, 5, lo_pips=-3)])         # önce high (pend), sonra low
+    e = ie_r([(5, 0), (20, 8), (30, 18), (28, 12), (26, 14)], res)
+    evs = e.update(bar(5, 35, -3, c=10))
+    assert [x.type for x in evs] == [EventType.INTERNAL_REF, EventType.CHOCH]
+    assert evs[0].level == px(12) and evs[1].level == px(12) and evs[1].note == "OUTSIDE_BAR_RESOLVED"
+
+
+def test_outside_bar_same_minute_needs_ticks_else_unresolved():
+    from photon.data import Tick
+    both = m1(0, 4, hi_pips=35, lo_pips=-3)                              # aynı dakikada ikisi de
+    e = ie_r([(5, 0), (20, 8), (30, 18), (28, 12)], resolver([both]))
+    assert [x.type for x in e.update(bar(4, 35, -3, c=10))] == [EventType.OUTSIDE_BAR]
+    ticks = lambda a, b: [Tick("EURUSD", both.open_time, px(20), px(20.5)),
+                          Tick("EURUSD", both.open_time + timedelta(seconds=5), px(-3), px(-2.5)),
+                          Tick("EURUSD", both.open_time + timedelta(seconds=9), px(35), px(35.5))]
+    e2 = ie_r([(5, 0), (20, 8), (30, 18), (28, 12)], resolver([both], ticks))
+    (ch,) = types(e2.update(bar(4, 35, -3, c=10)), EventType.CHOCH)         # tick sırası: önce low
+    assert ch.note == "OUTSIDE_BAR_RESOLVED"
+
+
+def test_m1_engine_outside_bar_uses_ticks_only():
+    from photon.data import PriceSide, SubTfResolver, Tick
+    rows = [(5, 0), (20, 8), (30, 18), (28, 12)]
+    t4 = bar(4, 0, 0, tf=Timeframe.M1).open_time
+    ticks = lambda a, b: [Tick("EURUSD", t4, px(35), px(35.5)), Tick("EURUSD", t4 + timedelta(seconds=3), px(-3), px(-2.5))]
+    e = StructureEngine(Timeframe.M1, params(**BIG), resolver=SubTfResolver([], PriceSide.BID, ticks))
+    e.start(bars(rows, tf=Timeframe.M1), ISEED)
+    evs = e.update(bar(4, 35, -3, c=10, tf=Timeframe.M1))
+    assert [x.type for x in evs] == [EventType.CHOCH] and evs[0].note == "OUTSIDE_BAR_RESOLVED"   # tick: önce high, aday low yok → eski referans kırıldı
+
+
+# ---------------- otomatik warm-up (Q-S01) ----------------
+AUTO = [(10, 0), (20, 8), (30, 18), (25, 15), (22, 12)]
+
+
+def auto_engine(live_from=None, **kw):
+    e = StructureEngine(Timeframe.H4, params(**kw), live_from=live_from)
+    e.start_auto()
+    return e
+
+
+def test_auto_trend_undefined_until_first_closed_swing_bos():
+    e = auto_engine()
+    for i, r in enumerate(AUTO):
+        assert e.update(bar(i, *r)) == []
+        assert e.state().swing_trend is Trend.UNDEFINED and not e.ready
+    assert types(e.update(bar(5, 30, 20, c=30)), EventType.BOS) == []       # kapanış == swing high (30): kırılım değil
+    evs = e.update(bar(6, 36, 28, c="30.1"))                                # +1 pipette kapanış → BOS
+    (bos,) = types(evs, EventType.BOS)
+    st = e.state()
+    assert bos.dir is Trend.BULL and bos.level == px(30) and bos.note == "BOOTSTRAP"
+    assert st.swing_trend is Trend.BULL and st.swing_low.price == px(12) and st.swing_low.index == 4   # kutu kuralı
+    assert st.internal_trend is Trend.BULL and e.ready
+
+
+def test_auto_wick_only_above_swing_high_is_not_bos_and_unconfirmed_high_just_extends():
+    e = auto_engine()
+    for i, r in enumerate(AUTO):
+        e.update(bar(i, *r))
+    assert e.update(bar(5, 33, 20, c=29)) == []        # wick geçti, kapanış içeride → sweep
+    e2 = auto_engine()
+    for i, r in enumerate([(10, 0), (20, 8), (30, 18)]):
+        e2.update(bar(i, *r))
+    assert e2.update(bar(3, 40, 25, c=39)) == []       # swing high henüz onaysız → yalnız uç uzar
+    assert e2.state().swing_trend is Trend.UNDEFINED
+
+
+def test_auto_bearish_bootstrap_and_internal_ref():
+    rows = [(0, -10), (12, 2), (20, 10), (14, 6), (4, -2)]            # düşüş: önce tepe, sonra dip onayı
+    e = auto_engine()
+    for i, r in enumerate([(30, 20), (28, 12), (18, 6), (22, 10), (24, 14)]):
+        assert e.update(bar(i, *r)) == []
+    evs = e.update(bar(5, 17, 4, c=4))                                 # dip (6) altında kapanış
+    (bos,) = types(evs, EventType.BOS)
+    assert bos.dir is Trend.BEAR and e.state().swing_trend is Trend.BEAR
+
+
+def test_warmup_events_flagged_and_dont_signal():
+    live = bar(7, 0, 0).open_time
+    e = auto_engine(live_from=live)
+    for i, r in enumerate(AUTO):
+        e.update(bar(i, *r))
+    (bos,) = types(e.update(bar(5, 36, 28, c="30.1")), EventType.BOS)
+    assert bos.warmup and not bos.signal_capable and not e.ready         # warm-up içinde
+    e.update(bar(6, 38, 30, c=36))
+    assert not e.ready
+    evs = e.update(bar(7, 40, 30, c=39))
+    assert e.ready and all(not x.warmup for x in evs)
+
+
+def test_manual_seed_option_still_works_and_is_not_warmup():
+    e = up_engine()
+    (bos,) = types(e.update(bar(6, 45, 30, c=42)), EventType.BOS)
+    assert not bos.warmup and bos.signal_capable and e.ready
+
+
+def test_start_auto_after_start_rejected():
+    e = up_engine()
+    with pytest.raises(RuntimeError):
+        e.start_auto()
+
+
+@pytest.mark.parametrize("seed", [11, 12, 13])
+def test_mirror_symmetry_auto_warmup(seed):
+    rnd = random.Random(seed)
+    rows = random_series(500, rnd)
+    cs = [bar(i, h, l, c) for i, (h, l, c) in enumerate(rows)]
+    k = D("2.2000")
+    a, b = auto_engine(min_pips=15), auto_engine(min_pips=15)
+    for c in cs:
+        a.update(c)
+        b.update(mirror(c, k))
+    flip = {Trend.BULL: Trend.BEAR, Trend.BEAR: Trend.BULL, Trend.UNDEFINED: Trend.UNDEFINED}
+    ea = [(x.type, x.dir, x.level, x.break_index, x.note) for x in a.events]
+    eb = [(x.type, flip[x.dir], k - x.level, x.break_index, x.note) for x in b.events]
+    assert ea == eb and a.state().swing_trend is flip[b.state().swing_trend]
+    assert a.events and a.events[0].note == "BOOTSTRAP"
+
+
+def test_warmup_config_and_gate():
+    cfg = load_config()
+    cfg.require("structure_warmup")
+    assert cfg.get("warmup_period") == {"D1": 365, "H4": 365, "M15": 30, "M1": 7}
 
 
 # ---------------- simetri: aynalanmış veri → aynalanmış olaylar ----------------

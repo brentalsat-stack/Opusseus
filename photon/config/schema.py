@@ -164,6 +164,9 @@ MODULES: dict[str, ModuleSpec] = {
     "structure_m1": ModuleSpec((  # M1 swing eşiği: U-13 / MS-R010 kalibrasyonu
         R(f"swing_min_pullback_pips.{PAIR}.M1", num_gt(0)),
     ), depends_on=("structure",)),
+    "structure_warmup": ModuleSpec((  # Q-S01
+        *(R(f"warmup_period.{tf}", int_ge(1)) for tf in ("D1", "H4", "M15", "M1")),
+    ), depends_on=("structure",)),
     "risk": ModuleSpec((  # RK-R001..R004, SL-R003
         R("risk_pct", pct_of_one),
         R("max_losses_per_day", int_ge(1)),

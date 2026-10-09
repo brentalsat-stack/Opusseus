@@ -34,7 +34,7 @@ def main(argv: list[str] | None = None) -> int:
     st.add_argument("--tf", required=True, choices=["D1", "H4", "M15", "M1"])
     st.add_argument("--start", type=date.fromisoformat, required=True)
     st.add_argument("--end", type=date.fromisoformat, required=True, help="dahil")
-    st.add_argument("--seed", required=True, help="başlangıç yapısı YAML (cold start tanımsız: Q-S01)")
+    st.add_argument("--seed", help="elle başlangıç yapısı YAML; verilmezse otomatik warm-up (config warmup_period)")
     st.add_argument("--out", default="structure_out")
     args = ap.parse_args(argv)
 
@@ -59,14 +59,17 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _structure_cmd(cfg, args) -> int:
+    from datetime import timedelta
     from pathlib import Path
 
     from .data import tools
     from .data.models import PriceSide, Timeframe
     from .data.resample import BoundarySpec, resample
+    from .data.resolver import SubTfResolver
     from .logging_setup import setup_from_config
     from .structure.params import StructureParams
-    from .structure.report import load_seed_yaml, plot_events, run_structure, write_events_csv
+    from .structure.report import (load_seed_yaml, plot_events, run_structure, run_structure_auto,
+                                   write_events_csv)
 
     setup_from_config(cfg)
     source = args.source or cfg.get("data.backtest.primary")
@@ -74,7 +77,11 @@ def _structure_cmd(cfg, args) -> int:
     tf = Timeframe(args.tf)
     cfg.require("data_boundaries")
     start, end = tools.day_range(args.start, args.end)
-    m1 = tools.load_m1(cfg, source, pair, start, end)
+    warm_days = 0
+    if not args.seed:
+        cfg.require("structure_warmup")
+        warm_days = cfg.get(f"warmup_period.{tf.value}")
+    m1 = tools.load_m1(cfg, source, pair, start - timedelta(days=warm_days), end)
     if not m1:
         print("önbellekte M1 yok; önce `photon fetch` çalıştırın", file=sys.stderr)
         return 2
@@ -82,12 +89,22 @@ def _structure_cmd(cfg, args) -> int:
     qc = m1 if tf is Timeframe.M1 else resample(m1, tf, spec)
     side = PriceSide(cfg.get("candle_price_side"))
     candles = [c.to_candle(side) for c in qc if c.complete]   # yalnızca kapanmış mumlar
-    seed, hist = load_seed_yaml(args.seed, candles)
-    eng = run_structure(candles, StructureParams.from_config(cfg, pair, tf), seed, hist)
+    resolver = SubTfResolver(m1, side)                        # Q-S04: outside bar → M1 (tick Aşama 7'de)
+    params = StructureParams.from_config(cfg, pair, tf)
+    if args.seed:
+        seed, hist = load_seed_yaml(args.seed, candles)
+        eng = run_structure(candles, params, seed, hist, resolver, start)
+    else:
+        first = next((i for i, c in enumerate(candles) if c.open_time >= start), len(candles))
+        if first == 0:
+            print(f"uyarı: warm-up verisi yok ({warm_days} gün gerekli); yapı geç kurulur", file=sys.stderr)
+        eng = run_structure_auto(candles, params, start, resolver)
+    first = next((i for i, c in enumerate(candles) if c.open_time >= start), 0)
     out = Path(args.out)
     n = write_events_csv(eng.events, out / f"{pair}_{tf.value}_structure.csv")
-    plot_events(candles, eng.events, out / f"{pair}_{tf.value}_structure.png")
-    print(f"{n} olay → {out}/")
+    plot_events(candles, eng.events, out / f"{pair}_{tf.value}_structure.png", first_index=first)
+    live = sum(1 for e in eng.events if not e.warmup)
+    print(f"{n} olay ({live} canlı, {n - live} warm-up) → {out}/; trend={eng.state().swing_trend.value}")
     return 0
 
 
