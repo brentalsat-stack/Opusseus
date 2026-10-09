@@ -43,10 +43,14 @@ def test_v2_decisions():
     assert cm["rate_pct"] == Decimal("0.002") and cm["min_per_order"] == 2
 
 
+def test_stage1_decisions():
+    c = load_config()
+    assert c.get("candle_boundaries") == {"tz": "America/New_York", "d1_open": "17:00", "h4_anchor": "17:00"}
+    assert c.get("candle_price_side") == "BID"
+    assert (c.get("data.live.host"), c.get("data.live.port"), c.get("data.live.client_id")) == ("127.0.0.1", 4001, 1)
+    c.require("data_boundaries", "live_feed")
+
+
 def test_only_expected_fields_remain_required():
     from photon.config import find_required
-    assert sorted(find_required(load_config().raw)) == sorted([
-        "swing_min_pullback_pips.EURUSD.M1", "v_shape_metric",                    # Aşama 4 / kalibrasyon
-        "candle_boundaries.tz", "candle_boundaries.d1_open", "candle_boundaries.h4_anchor",   # Q-D01
-        "candle_price_side",                                                      # Q-D02
-        "data.live.host", "data.live.port", "data.live.client_id"])               # IBKR bağlantısı
+    assert sorted(find_required(load_config().raw)) == ["swing_min_pullback_pips.EURUSD.M1", "v_shape_metric"]

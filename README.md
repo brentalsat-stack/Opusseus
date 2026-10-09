@@ -68,15 +68,10 @@ python -m photon data-check --source DUKASCOPY --start 2021-09-01 --end 2021-09-
 - `cache.py`: SQLite (fiyatlar TEXT=Decimal birebir); indirme parça parça, kesintide devam eder.
 - Kaynak seçimi: `--source`, verilmezse `data.backtest.primary`.
 
-**IMPLEMENTATION DECISION REQUIRED**
-- **Q-D01 — H4/D1 mum sınırları:** kaynakta tanımsız. `candle_boundaries.{tz,d1_open,h4_anchor}` `REQUIRED`; H4/D1 üretimi karar gelene kadar başlamaz (M1/M15 etkilenmez).
-  Seçenek örneği (kaynakta yok): NY 17:00 kapanışı. Uygulanan kural: D1 = `d1_open`'dan sonraki `d1_open`'a (DST günleri 23/25 sa); H4 = `h4_anchor`'dan 4 saatlik adımlar, her `h4_anchor`'da sıfırlanır.
-- **Q-D02 — Yapı hangi fiyatla:** `candle_price_side` (BID|ASK) `REQUIRED`; mid üretilmez. Spread/maliyet için bid+ask birlikte saklanır.
-- **Q-D03 — Hafta sonu etiketi:** raporlamada, Cuma (UTC) başlayıp Pazar/Pzt biten ve Cumartesi'yi tamamen kapsayan boşluk `WEEKEND_GAP`; diğer boşluklar `MISSING`. Yalnızca etiket, veri değişmez.
-- **Q-D04 — OANDA S5/tick:** uygulanmadı (OANDA tick sunmuyor; S5 için `Timeframe` kaynakta yok). Intrabar çözümü Aşama 7'de Dukascopy tick ile.
+**Aşama 1 kararları (kullanıcı onaylı):** Q-D01 NY 17:00 (D1 ve H4 çapası, DST NY'ye göre); Q-D02 `candle_price_side=BID`
+(backtest dolumları bid/ask: long ask, short bid); Q-D03 hafta sonu etiketi onaylandı; Q-D04 OANDA S5/tick yok, stop+hedef
+aynı mum çözümü Aşama 7'de Dukascopy tick ile; IBKR 127.0.0.1:4001 (canlı Gateway), client_id 1.
 
 ### Açık sorular
 
-- Kalan `REQUIRED`: `swing_min_pullback_pips.EURUSD.M1` (kalibrasyon sonucu), `v_shape_metric` (Aşama 4'te önerilip onaylanacak).
-- `zone_draw_mode.M15: CANDLE` ve `range_extreme_filter.range_tf: M15` onaylandı.
-- `pair_params.EURUSD.units_per_lot: 100000` standart lot varsayımıdır (sinyalde birim göstermek için).
+- Kalan `REQUIRED`: `swing_min_pullback_pips.EURUSD.M1` (kalibrasyon), `v_shape_metric` (Aşama 4).

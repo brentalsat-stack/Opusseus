@@ -123,17 +123,17 @@ costs:
     currency: USD
 reference_backtest: {pair: EURUSD, entry_tf: M15, start: "2021-09-01", end: "2021-09-30"}
 
-# Q-D01 IMPLEMENTATION DECISION REQUIRED: H4/D1 mum sınırları kaynakta tanımsız (Aşama 1).
+# Q-D01 KARAR (Aşama 1): H4/D1 mum sınırları.
 candle_boundaries:
-  tz: REQUIRED          # örn. IANA saat dilimi adı
-  d1_open: REQUIRED     # "HH:MM" — günlük mumun açılış duvar saati (tz'de)
-  h4_anchor: REQUIRED   # "HH:MM" — H4 mumlarının hizalandığı duvar saati (tz'de)
-# Q-D02 IMPLEMENTATION DECISION REQUIRED: yapı motoruna hangi fiyat verilecek (BID|ASK).
-candle_price_side: REQUIRED
+  tz: America/New_York  # Q-D01 KARAR: TradingView FX, DST NY'ye göre
+  d1_open: "17:00"      # günlük mum NY 17:00 kapanış/açılış
+  h4_anchor: "17:00"    # H4 açılışları NY: 17,21,01,05,09,13
+# Q-D02 KARAR: yapı motoruna verilen fiyat (BID|ASK).
+candle_price_side: BID      # Q-D02 KARAR: TradingView FX = bid; backtest dolumları bid/ask (long ask, short bid)
 
 data:
   live: {provider: IBKR, library: ib_async, venue: IDEALPRO, read_only: true,
-         host: REQUIRED, port: REQUIRED, client_id: REQUIRED}   # TWS/Gateway bağlantısı (kullanıcı ortamı)
+         host: 127.0.0.1, port: 4001, client_id: 1}   # IB Gateway canlı (paper 4002, TWS 7496/7497)
   backtest:
     primary: OANDA_PRACTICE             # DECISIONS §1; hesap açılamazsa fallback
     fallback: DUKASCOPY
