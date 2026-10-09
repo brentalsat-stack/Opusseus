@@ -1,0 +1,101 @@
+# PHOTON TRADE — config.yaml
+# Şema: FINAL_SPEC.md §26. Değerler: DECISIONS.md (KARAR olanlar yazıldı).
+# `REQUIRED` = BEKLİYOR / kaynakta değer yok. Bu alanlar için varsayılan ATANMAZ;
+# ilgili modül başlamaz (fail-fast), `python -m photon check` eksikleri listeler.
+
+mode:
+  kind: SIGNAL_AND_BACKTEST          # DECISIONS §1 — sinyal + backtest
+  auto_order: false                  # DECISIONS §1 — otomatik emir YOK
+
+pairs: [EURUSD]                      # DECISIONS §1 — liste config'den, çoklu pariteye açık
+
+# Parite bazlı parametreler (FM-02 girdileri).
+pair_params:
+  EURUSD:
+    pip_size: 0.0001                 # parite özelliği
+    pip_value_per_lot: REQUIRED      # hesap para birimi / broker bilgisi
+    lot_step: REQUIRED               # broker bilgisi
+    min_lot: REQUIRED                # broker bilgisi
+
+timeframes: {htf: H4, mtf: M15, ltf: M1}
+
+timezones:
+  storage: UTC                       # zaman damgaları UTC saklanır
+  session: Europe/London             # seans saatleri (IANA, DST otomatik)
+  display: Europe/Istanbul           # gösterim
+
+# --- Market structure ------------------------------------------------------
+swing_min_pullback_pips:             # MS-R008; DECISIONS §2
+  EURUSD: {D1: 90, H4: 40, M15: 15, M1: REQUIRED}   # M1: U-13 BEKLİYOR
+swing_threshold_inclusive: true      # D-16 KARAR: ≥ (en az)
+min_swing_candles: 2                 # C-05
+trend_change_confirmation: SINGLE_BOS   # D-14 KARAR
+counter_htf_require_double_bos: REQUIRED  # D-15 BEKLİYOR
+
+# --- Zon / likidite (B-01..B-05 BEKLİYOR) ----------------------------------
+zone_draw_mode: {H4: REQUIRED, M15: REQUIRED, M1: REQUIRED}   # D-01
+require_refined_ltf_zone_in_htf_poi: REQUIRED   # D-02
+require_sweep_zone: REQUIRED                    # D-03
+require_inducement: REQUIRED                    # D-04
+require_pd_alignment: REQUIRED                  # D-05
+range_extreme_filter: REQUIRED                  # D-25
+swing_hold_confirmation: REQUIRED               # D-26
+range_detection: REQUIRED                       # U-01
+breakout_strength: REQUIRED                     # U-02
+reaction_min: REQUIRED                          # U-03
+eqh_tolerance: REQUIRED                         # U-04
+v_shape_metric: REQUIRED                        # U-06
+
+# --- Giriş / stop ----------------------------------------------------------
+decisional_flip_requires_sweep: false   # D-06 KARAR: sweep yoksa da flip zonundan gir
+entry_type: CONFIRMATION                # D-07 KARAR
+entry_price_mode: FIXED_SL              # D-08 KARAR
+fixed_sl_pips: 2                        # D-08 KARAR
+sl_buffer_pips: 0                       # D-09 KARAR: zonun hemen arkası, ek pay 0
+min_sl_pips: 2                          # SL-R003
+
+# --- Risk ------------------------------------------------------------------
+risk_pct: 0.01                          # RK-R001 KARAR: %1 (tavan)
+max_losses_per_day: 3                   # RK-R003
+day_reset: {tz: Europe/Istanbul, time: "00:00"}   # D-18 KARAR
+
+# --- Pozisyon yönetimi -----------------------------------------------------
+risk_removal_method: PARTIAL            # D-10 KARAR
+partial_pct: 20                         # D-11 KARAR
+partial_at_r: 4                         # D-11 KARAR
+pro_trend_reference: BOTH               # D-12 KARAR: 4H ve M15 ikisi de
+target_allocation:                      # D-13
+  pro_trend: {m15_weak_swing_pct: 60, h4_weak_swing_pct: 20}   # %20 ayrıca @4R
+  counter_trend:
+    first_target: NEXT_M15_SD_ZONE_OR_M15_SWING
+    allocation_pct: REQUIRED            # kesin oran BEKLİYOR
+  range:
+    targets: RANGE_EXTREMES
+    allocation_pct: REQUIRED            # oran kaynakta yok
+
+# --- Seans / zaman ---------------------------------------------------------
+sessions_london: [["07:00", "10:00"], ["12:00", "15:00"]]   # SS-R001
+blackout: {tz: REQUIRED, start: "21:00", end: "23:00"}      # C-09 BEKLİYOR (kaynak: GMT)
+news_filter:                            # DECISIONS §6
+  mode: WARN_ONLY                       # sinyal üretilir + uyarı notu
+  lead_hours: REQUIRED                  # BEKLİYOR
+  calendar_source: REQUIRED             # BEKLİYOR
+order_expiry:                           # DECISIONS §7
+  mode: CANCEL_IF_FIRST_TARGET_REACHED_BEFORE_FILL
+
+# --- Backtest --------------------------------------------------------------
+intrabar_policy:                        # DECISIONS §7
+  resolver: TICK
+  fallback: STOP_FIRST                  # tick yoksa stop sayılır; sayısı raporlanır
+costs:
+  spread: FROM_DATA                     # bid/ask'tan
+  commission: REQUIRED                  # IBKR tarifesi — değer girilecek
+reference_backtest: {pair: EURUSD, entry_tf: M15, start: "2021-09-01", end: "2021-09-30"}
+
+data:
+  live: {provider: IBKR, library: ib_async, symbol: EUR.USD, venue: IDEALPRO, read_only: true}
+  backtest: {primary: OANDA_PRACTICE, fallback: DUKASCOPY}
+
+notifications: [SCREEN, LOG_FILE]
+
+logging: {level: INFO, file: logs/photon.log}

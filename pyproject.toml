@@ -1,0 +1,16 @@
+[project]
+name = "photon-trade"
+version = "0.1.0"
+description = "Photon Trade — sinyal + backtest iskeleti"
+requires-python = ">=3.11"
+dependencies = ["PyYAML>=6.0", "tzdata"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[tool.setuptools.packages.find]
+include = ["photon*"]
+
+[tool.pytest.ini_options]
+testpaths = ["photon/tests"]
+pythonpath = ["."]
