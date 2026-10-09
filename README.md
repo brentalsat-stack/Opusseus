@@ -56,5 +56,5 @@ Kaynakta/karar dosyasında olmayan hiçbir değere varsayılan atanmaz. Kendi de
 ### Açık sorular
 
 - Kalan `REQUIRED`: `swing_min_pullback_pips.EURUSD.M1` (kalibrasyon sonucu), `v_shape_metric` (Aşama 4'te önerilip onaylanacak).
-- `zone_draw_mode.M15: PIVOT` ("tek pivot mumu") ve `range_extreme_filter.range_tf: M15` Aşama 4'te teyit edilecek.
+- `zone_draw_mode.M15: CANDLE` ve `range_extreme_filter.range_tf: M15` onaylandı.
 - `pair_params.EURUSD.units_per_lot: 100000` standart lot varsayımıdır (sinyalde birim göstermek için).

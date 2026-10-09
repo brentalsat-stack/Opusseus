@@ -30,6 +30,7 @@ def test_v2_decisions():
     assert c.get("eqh_tolerance.pips") == 2 and c.get("reaction_min.pips") == 2
     assert c.get("range_detection.min_candles") == 3
     assert c.get("require_liquidation") is True
+    assert c.get("zone_draw_mode") == {"H4": "RANGE", "M15": "CANDLE", "M1": "REACTION_BASE_TO_TOP"}
     assert (c.get("require_sweep_zone"), c.get("require_inducement"), c.get("require_pd_alignment")) == (False, False, False)
     assert c.get("range_extreme_filter.allowed_band_pct") == 25
     w = c.get("poi_scoring.weights")

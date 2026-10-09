@@ -38,7 +38,7 @@ counter_htf_require_double_bos: true    # D-15 KARAR: 4H'ye karşı işlemde M15
 # --- Zon / likidite / POI (DECISIONS v2 §3) --------------------------------
 zone_draw_mode:                                 # D-01 KARAR: eğitmen kombinasyonu
   H4: RANGE                                     # tüm range
-  M15: PIVOT                                    # tek pivot mumu (PIVOT/CANDLE ayrımı Aşama 4'te teyit)
+  M15: CANDLE                                   # onaylandı: son sell-to-buy mumu, tek mum (tüm range değil)
   M1: REACTION_BASE_TO_TOP                      # giriş kutusu = reaksiyon tabanı→tepesi
 require_refined_ltf_zone_in_htf_poi: true       # D-02 KARAR
 require_liquidation: true                       # EN-R001 adım 1 — ZORUNLU kapı
