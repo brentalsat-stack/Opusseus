@@ -13,9 +13,12 @@ pairs: [EURUSD]                      # DECISIONS §1 — liste config'den, çokl
 pair_params:
   EURUSD:
     pip_size: 0.0001                 # parite özelliği
-    pip_value_per_lot: REQUIRED      # hesap para birimi / broker bilgisi
-    lot_step: REQUIRED               # broker bilgisi
-    min_lot: REQUIRED                # broker bilgisi
+    pip_value_per_lot: 10            # KARAR (Aşama 0 cevabı): hesap USD
+    lot_step: 0.01                   # KARAR
+    min_lot: 0.01                    # KARAR
+    units_per_lot: 100000            # sinyalde lot yanında birim göstermek için (standart lot; pip değeri 10 USD ile tutarlı)
+
+account: {currency: USD}
 
 timeframes: {htf: H4, mtf: M15, ltf: M1}
 
@@ -26,25 +29,45 @@ timezones:
 
 # --- Market structure ------------------------------------------------------
 swing_min_pullback_pips:             # MS-R008; DECISIONS §2
-  EURUSD: {D1: 90, H4: 40, M15: 15, M1: REQUIRED}   # M1: U-13 BEKLİYOR
+  EURUSD: {D1: 90, H4: 40, M15: 15, M1: REQUIRED}   # U-13: MS-R010 kalibrasyonuyla bulunacak (DECISIONS v2 §2) — değer gelene kadar REQUIRED
 swing_threshold_inclusive: true      # D-16 KARAR: ≥ (en az)
 min_swing_candles: 2                 # C-05
 trend_change_confirmation: SINGLE_BOS   # D-14 KARAR
-counter_htf_require_double_bos: REQUIRED  # D-15 BEKLİYOR
+counter_htf_require_double_bos: true    # D-15 KARAR: 4H'ye karşı işlemde M15'te çift BOS (HH+HL)
 
-# --- Zon / likidite (B-01..B-05 BEKLİYOR) ----------------------------------
-zone_draw_mode: {H4: REQUIRED, M15: REQUIRED, M1: REQUIRED}   # D-01
-require_refined_ltf_zone_in_htf_poi: REQUIRED   # D-02
-require_sweep_zone: REQUIRED                    # D-03
-require_inducement: REQUIRED                    # D-04
-require_pd_alignment: REQUIRED                  # D-05
-range_extreme_filter: REQUIRED                  # D-25
-swing_hold_confirmation: REQUIRED               # D-26
-range_detection: REQUIRED                       # U-01
-breakout_strength: REQUIRED                     # U-02
-reaction_min: REQUIRED                          # U-03
-eqh_tolerance: REQUIRED                         # U-04
-v_shape_metric: REQUIRED                        # U-06
+# --- Zon / likidite / POI (DECISIONS v2 §3) --------------------------------
+zone_draw_mode:                                 # D-01 KARAR: eğitmen kombinasyonu
+  H4: RANGE                                     # tüm range
+  M15: PIVOT                                    # tek pivot mumu (PIVOT/CANDLE ayrımı Aşama 4'te teyit)
+  M1: REACTION_BASE_TO_TOP                      # giriş kutusu = reaksiyon tabanı→tepesi
+require_refined_ltf_zone_in_htf_poi: true       # D-02 KARAR
+require_liquidation: true                       # EN-R001 adım 1 — ZORUNLU kapı
+require_sweep_zone: false                       # D-03 KARAR: puan kriteri
+require_inducement: false                       # D-04 KARAR: puan kriteri
+require_pd_alignment: false                     # D-05 KARAR: puan kriteri
+range_extreme_filter:                           # D-25 / PD-R003 — ZORUNLU kapı
+  enabled: true
+  allowed_band_pct: 25                          # long yalnız alt %25, short yalnız üst %25
+  range_tf: M15                                 # varsayılan; Aşama 4'te teyit edilecek
+swing_hold_confirmation: H4_CHOCH               # D-26 KARAR
+range_detection: {type: INSIDE_BAR_CHAIN, min_candles: 3, breakout: CLOSE_OUTSIDE}   # B-01
+breakout_strength: {extra_criterion: NONE}      # yapı kırılımı yeterli
+reaction_min: {pips: 2, measured: REACTION_START_TO_REACTION_EXTREME}   # B-02
+eqh_tolerance: {pips: 2}                        # LQ-R001
+v_shape_metric: REQUIRED                        # B-05: ölçüt Aşama 4'te önerilip onaylanacak
+
+poi_scoring:                                    # DECISIONS v2 §3 — eşik puan YOK
+  weights:
+    bos_and_flip: 3
+    swing_break: 2
+    nested_zone: 2
+    pro_trend: 2
+    sweep_zone: 1.5
+    inducement: 1.5
+    pivot_zone: 1
+    weak_target: 1
+    pd_alignment: 1
+    corrective_or_vshape: 1
 
 # --- Giriş / stop ----------------------------------------------------------
 decisional_flip_requires_sweep: false   # D-06 KARAR: sweep yoksa da flip zonundan gir
@@ -68,18 +91,21 @@ target_allocation:                      # D-13
   pro_trend: {m15_weak_swing_pct: 60, h4_weak_swing_pct: 20}   # %20 ayrıca @4R
   counter_trend:
     first_target: NEXT_M15_SD_ZONE_OR_M15_SWING
-    allocation_pct: REQUIRED            # kesin oran BEKLİYOR
+    allocation_pct: 80                  # KARAR; %20@4R ile toplam 100
   range:
     targets: RANGE_EXTREMES
-    allocation_pct: REQUIRED            # oran kaynakta yok
+    allocation_pct: 100                 # KARAR: risk kaldırma sonrası kalan hacmin tamamı
+    of: REMAINING_AFTER_RISK_REMOVAL
 
 # --- Seans / zaman ---------------------------------------------------------
 sessions_london: [["07:00", "10:00"], ["12:00", "15:00"]]   # SS-R001
-blackout: {tz: REQUIRED, start: "21:00", end: "23:00"}      # C-09 BEKLİYOR (kaynak: GMT)
+blackout: {tz: UTC, start: "21:00", end: "23:00"}   # C-09 KARAR: GMT/UTC sabit
 news_filter:                            # DECISIONS §6
-  mode: WARN_ONLY                       # sinyal üretilir + uyarı notu
-  lead_hours: REQUIRED                  # BEKLİYOR
-  calendar_source: REQUIRED             # BEKLİYOR
+  mode: WARN_ONLY                       # sinyal ENGELLENMEZ; uyarı notu
+  provider: FOREXFACTORY
+  currencies: [EUR, USD]
+  impact: HIGH
+  scope: ALL_SIGNALS_OF_DAY             # o gün yüksek etkili haber varsa günün tüm sinyallerine not
 order_expiry:                           # DECISIONS §7
   mode: CANCEL_IF_FIRST_TARGET_REACHED_BEFORE_FILL
 
@@ -89,7 +115,11 @@ intrabar_policy:                        # DECISIONS §7
   fallback: STOP_FIRST                  # tick yoksa stop sayılır; sayısı raporlanır
 costs:
   spread: FROM_DATA                     # bid/ask'tan
-  commission: REQUIRED                  # IBKR tarifesi — değer girilecek
+  commission:                           # IBKR forex (Aşama 0 cevabı); config'den değiştirilebilir
+    model: PCT_OF_NOTIONAL
+    rate_pct: 0.002                     # işlem tutarının %0.002'si (0.2 bps)
+    min_per_order: 2
+    currency: USD
 reference_backtest: {pair: EURUSD, entry_tf: M15, start: "2021-09-01", end: "2021-09-30"}
 
 data:

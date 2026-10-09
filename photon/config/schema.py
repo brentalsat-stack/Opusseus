@@ -122,6 +122,10 @@ def non_empty_str_list(v: Any) -> str | None:
     return None if ok else "boş olmayan metin listesi olmalı"
 
 
+def non_empty_str(v: Any) -> str | None:
+    return None if isinstance(v, str) and v.strip() else "boş olmayan metin olmalı"
+
+
 def is_false(v: Any) -> str | None:
     return None if v is False else "false olmalı (otomatik emir YOK — DECISIONS §1)"
 
@@ -131,6 +135,8 @@ def _partial_mode(cfg: Mapping[str, Any]) -> bool:
 
 
 R = Requirement
+POI_CRITERIA = ("bos_and_flip", "swing_break", "nested_zone", "pro_trend", "sweep_zone",
+                "inducement", "pivot_zone", "weak_target", "pd_alignment", "corrective_or_vshape")
 _TFS = ("D1", "H4", "M15")
 
 MODULES: dict[str, ModuleSpec] = {
@@ -165,6 +171,8 @@ MODULES: dict[str, ModuleSpec] = {
         R(f"pair_params.{PAIR}.pip_value_per_lot", num_gt(0)),
         R(f"pair_params.{PAIR}.lot_step", num_gt(0)),
         R(f"pair_params.{PAIR}.min_lot", num_gt(0)),
+        R(f"pair_params.{PAIR}.units_per_lot", num_gt(0)),
+        R("account.currency", non_empty_str),
     ), depends_on=("risk",)),
     "session": ModuleSpec((  # SS-R001
         R("sessions_london", windows),
@@ -176,17 +184,22 @@ MODULES: dict[str, ModuleSpec] = {
         R("blackout.end", hhmm),
     ), depends_on=("session",)),
     "zones": ModuleSpec((  # SD-R001..R006 (B-01..B-03)
-        *(R(f"zone_draw_mode.{tf}",
-            one_of("RANGE", "PIVOT", "CANDLE", "FRACTAL_WICK")) for tf in ("H4", "M15", "M1")),
+        R("zone_draw_mode.H4", one_of("RANGE", "PIVOT", "CANDLE", "FRACTAL_WICK")),
+        R("zone_draw_mode.M15", one_of("RANGE", "PIVOT", "CANDLE", "FRACTAL_WICK")),
+        R("zone_draw_mode.M1", one_of("REACTION_BASE_TO_TOP", "RANGE", "PIVOT", "CANDLE", "FRACTAL_WICK")),
         R("require_refined_ltf_zone_in_htf_poi", is_bool),
-        R("range_detection"),
-        R("breakout_strength"),
-        R("reaction_min"),
+        R("range_detection.type", one_of("INSIDE_BAR_CHAIN")),
+        R("range_detection.min_candles", int_ge(2)),
+        R("range_detection.breakout", one_of("CLOSE_OUTSIDE")),
+        R("breakout_strength.extra_criterion", one_of("NONE")),
+        R("reaction_min.pips", num_gt(0)),
+        R("reaction_min.measured", non_empty_str),
     ), depends_on=("structure",)),
     "liquidity": ModuleSpec((  # LQ-R001..R006 (B-04, B-05)
         R("require_sweep_zone", is_bool),
         R("require_inducement", is_bool),
-        R("eqh_tolerance"),
+        R("require_liquidation", is_bool),
+        R("eqh_tolerance.pips", num_gt(0)),
         R("v_shape_metric"),
     ), depends_on=("structure",)),
     "strategy": ModuleSpec((  # POI-R004, EN-R001..R009
@@ -199,8 +212,11 @@ MODULES: dict[str, ModuleSpec] = {
         R("require_pd_alignment", is_bool),
         R("counter_htf_require_double_bos", is_bool),
         R("pro_trend_reference", one_of("H4", "M15", "BOTH")),
-        R("range_extreme_filter"),
-        R("swing_hold_confirmation"),
+        R("range_extreme_filter.enabled", is_bool),
+        R("range_extreme_filter.allowed_band_pct", num_gt(0)),
+        R("range_extreme_filter.range_tf", one_of("D1", "H4", "M15")),
+        R("swing_hold_confirmation", one_of("H4_TREND_CHANGE", "H4_CHOCH", "M15_CHOCH")),
+        *(R(f"poi_scoring.weights.{k}", num_gt(0)) for k in POI_CRITERIA),
     ), depends_on=("structure", "zones", "liquidity", "risk", "risk_sizing",
                    "session", "session_blackout")),
     "management": ModuleSpec((  # MG-R001..R006
@@ -214,8 +230,10 @@ MODULES: dict[str, ModuleSpec] = {
     ), depends_on=("risk",)),
     "signals": ModuleSpec((  # sinyal çıktısı: haber uyarısı, emir ömrü
         R("news_filter.mode", one_of("WARN_ONLY")),
-        R("news_filter.lead_hours", num_gt(0)),
-        R("news_filter.calendar_source"),
+        R("news_filter.provider", one_of("FOREXFACTORY")),
+        R("news_filter.currencies", non_empty_str_list),
+        R("news_filter.impact", one_of("HIGH")),
+        R("news_filter.scope", one_of("ALL_SIGNALS_OF_DAY")),
         R("order_expiry.mode"),
         R("notifications", non_empty_str_list),
     ), depends_on=("strategy", "management")),
@@ -226,7 +244,10 @@ MODULES: dict[str, ModuleSpec] = {
         R("intrabar_policy.resolver", one_of("TICK")),
         R("intrabar_policy.fallback", one_of("STOP_FIRST")),
         R("costs.spread", one_of("FROM_DATA")),
-        R("costs.commission", num_ge(0)),
+        R("costs.commission.model", one_of("PCT_OF_NOTIONAL")),
+        R("costs.commission.rate_pct", num_ge(0)),
+        R("costs.commission.min_per_order", num_ge(0)),
+        R("costs.commission.currency", non_empty_str),
         R("data.backtest.primary"),
     ), depends_on=("signals",)),
     "journal": ModuleSpec(),

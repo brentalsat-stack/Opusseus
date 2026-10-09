@@ -38,8 +38,8 @@ cfg.require("structure")   # eksik/REQUIRED/geçersiz varsa ConfigError — tüm
 
 | Durum | Modüller |
 |---|---|
-| Bekleyen alandan bağımsız (hazır) | `data`, `structure` (D1/H4/M15), `risk`, `session`, `execution`, `journal` |
-| Alan bekliyor | `structure_m1` (U-13), `risk_sizing` (broker bilgisi), `session_blackout` (C-09), `zones`, `liquidity`, `strategy`, `management`, `signals`, `backtest` |
+| Hazır (DECISIONS v2.0 sonrası) | `data`, `structure` (D1/H4/M15), `risk`, `risk_sizing`, `session`, `session_blackout`, `zones`, `management`, `execution`, `journal` |
+| Alan bekliyor | `structure_m1` (M1 swing eşiği, MS-R010 kalibrasyonu), `liquidity` (`v_shape_metric`, Aşama 4 önerisi) ve bunlara bağlı `strategy`, `signals`, `backtest` |
 
 Kaynakta/karar dosyasında olmayan hiçbir değere varsayılan atanmaz. Kendi değerlerinizi
 `config.yaml` içinde `REQUIRED` yerine yazarak modülleri açarsınız.
@@ -55,6 +55,6 @@ Kaynakta/karar dosyasında olmayan hiçbir değere varsayılan atanmaz. Kendi de
 
 ### Açık sorular
 
-- `pair_params.*.pip_value_per_lot / lot_step / min_lot`: FM-02 girdileri, DECISIONS'ta değer yok → `REQUIRED`.
-- `target_allocation.counter_trend / range` oranları, `costs.commission`, `news_filter.*`, `blackout.tz`: BEKLİYOR.
-- `risk_pct` DECISIONS'a göre `0.01` (FINAL_SPEC §26 örneği `0.005`); tavan 0.01 olarak doğrulanır.
+- Kalan `REQUIRED`: `swing_min_pullback_pips.EURUSD.M1` (kalibrasyon sonucu), `v_shape_metric` (Aşama 4'te önerilip onaylanacak).
+- `zone_draw_mode.M15: PIVOT` ("tek pivot mumu") ve `range_extreme_filter.range_tf: M15` Aşama 4'te teyit edilecek.
+- `pair_params.EURUSD.units_per_lot: 100000` standart lot varsayımıdır (sinyalde birim göstermek için).

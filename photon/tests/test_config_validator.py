@@ -29,20 +29,28 @@ def test_blocker_free_modules_ready_with_pending_fields(cfg):
         require(cfg, m)  # fırlatmamalı
 
 
-@pytest.mark.parametrize("m", ["zones", "liquidity", "strategy", "management", "signals",
-                               "backtest", "structure_m1", "risk_sizing", "session_blackout"])
+@pytest.mark.parametrize("m", ["structure_m1", "liquidity", "strategy", "signals", "backtest"])
 def test_pending_modules_blocked(cfg, m):
     assert not validate_module(cfg, m).ok
     with pytest.raises(ConfigError):
         require(cfg, m)
 
 
+def test_decided_modules_now_ready(cfg):
+    for m in ("zones", "management", "risk_sizing", "session_blackout"):
+        assert validate_module(cfg, m).ok, m
+
+
 def test_error_lists_all_missing_fields(cfg):
+    c = cfg
+    for p in ("zone_draw_mode.H4", "zone_draw_mode.M15", "zone_draw_mode.M1", "reaction_min.pips",
+              "range_detection.min_candles", "require_refined_ltf_zone_in_htf_poi"):
+        c = mutate(c, p, "REQUIRED")
     with pytest.raises(ConfigError) as ei:
-        require(cfg, "zones")
+        require(c, "zones")
     msg = str(ei.value)
-    for p in ("zone_draw_mode.H4", "zone_draw_mode.M15", "zone_draw_mode.M1", "range_detection",
-              "breakout_strength", "reaction_min", "require_refined_ltf_zone_in_htf_poi"):
+    for p in ("zone_draw_mode.H4", "zone_draw_mode.M15", "zone_draw_mode.M1", "reaction_min.pips",
+              "range_detection.min_candles", "require_refined_ltf_zone_in_htf_poi"):
         assert p in msg
 
 
@@ -50,7 +58,7 @@ def test_strategy_error_names_dependency_gaps(cfg):
     with pytest.raises(ConfigError) as ei:
         require(cfg, "strategy")
     msg = str(ei.value)
-    assert "blackout.tz" in msg and "counter_htf_require_double_bos" in msg and "lot_step" in msg
+    assert "v_shape_metric" in msg and "bağımlılıklar hazır değil: liquidity" in msg
 
 
 @pytest.mark.parametrize("bad", [None, "", "REQUIRED", "  "])
@@ -74,10 +82,10 @@ def test_blocked_module_does_not_affect_independent_module(cfg):
 
 
 def test_filling_pending_fields_unblocks(cfg):
-    c = cfg
-    for p, v in {"blackout.tz": "UTC"}.items():
-        c = mutate(c, p, v)
-    assert validate_module(c, "session_blackout").ok
+    c = mutate(cfg, "v_shape_metric", {"type": "TEST"})
+    assert validate_module(c, "liquidity").ok and validate_module(c, "strategy").ok
+    c = mutate(cfg, "blackout.tz", "REQUIRED")
+    assert not validate_module(c, "session_blackout").ok
 
 
 @pytest.mark.parametrize("path,value", [
@@ -92,6 +100,11 @@ def test_filling_pending_fields_unblocks(cfg):
     ("swing_threshold_inclusive", "yes"),
     ("mode.auto_order", True),
     ("pair_params.EURUSD.pip_size", 0),
+    ("eqh_tolerance.pips", -1),
+    ("zone_draw_mode.H4", "MAGIC"),
+    ("poi_scoring.weights.pro_trend", 0),
+    ("swing_hold_confirmation", "M1_CHOCH"),
+    ("costs.commission.rate_pct", -0.1),
 ])
 def test_invalid_values_rejected(cfg, path, value):
     c = mutate(cfg, path, value)
@@ -126,7 +139,7 @@ def test_every_required_in_config_is_covered_by_a_module(cfg):
 
 
 def test_no_defaults_injected(cfg):
-    assert get_path(cfg.raw, "blackout.tz") == "REQUIRED"
+    assert get_path(cfg.raw, "v_shape_metric") == "REQUIRED"
     assert not validate_all(cfg)["strategy"].ok
 
 
