@@ -111,3 +111,22 @@ def test_ibkr_to_tick():
     assert t.bid == D("1.18000") and t.ask == D("1.18005")
     assert to_tick("EURUSD", float("nan"), 1.1, H, PIP) is None
     assert to_tick("EURUSD", -1.0, 1.1, H, PIP) is None
+
+
+def test_retry_on_connection_reset():
+    import urllib.error
+    seq = [urllib.error.URLError(ConnectionResetError(104, "reset")), (200, b"ok", {})]
+
+    def get(u, h):
+        r = seq.pop(0)
+        if isinstance(r, Exception):
+            raise r
+        return r
+
+    sleeps = []
+    assert get_with_retry("u", {}, get, 2, sleeps.append) == (200, b"ok") and sleeps == [5]
+
+    def always(u, h):
+        raise ConnectionResetError(104, "reset")
+    with pytest.raises(RuntimeError, match="ağ hatası"):
+        get_with_retry("u", {}, always, 1, lambda s: None)

@@ -26,7 +26,13 @@ def get_with_retry(url: str, headers: Mapping[str, str], http_get: HttpGet, max_
                    sleep: Callable[[float], None] = time.sleep) -> tuple[int, bytes]:
     """429/5xx için üstel bekleme (Retry-After'a saygılı). Tükenirse RateLimited / RuntimeError."""
     for attempt in range(max_retries + 1):
-        status, body, hdr = http_get(url, headers)
+        try:
+            status, body, hdr = http_get(url, headers)
+        except (urllib.error.URLError, ConnectionError, TimeoutError) as e:  # bağlantı kopması = geçici
+            if attempt == max_retries:
+                raise RuntimeError(f"{url}: ağ hatası, {max_retries} denemeden sonra vazgeçildi: {e}") from e
+            sleep(min(2 ** attempt * 5, 120))
+            continue
         if status < 400 or status == 404:
             return status, body
         if attempt == max_retries:
