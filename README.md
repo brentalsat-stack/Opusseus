@@ -72,6 +72,11 @@ python -m photon data-check --source DUKASCOPY --start 2021-09-01 --end 2021-09-
 (backtest dolumları bid/ask: long ask, short bid); Q-D03 hafta sonu etiketi onaylandı; Q-D04 OANDA S5/tick yok, stop+hedef
 aynı mum çözümü Aşama 7'de Dukascopy tick ile; IBKR 127.0.0.1:4001 (canlı Gateway), client_id 1.
 
+### Market structure (Aşama 2)
+
+`photon/structure/` — MS-R001..R009, R014. Kural→kod→test tablosu ve **Q-S01..Q-S06 açık soru raporları**: `photon/structure/README.md`.
+Doğrulama çıktısı: `python -m photon structure --tf M15 --start ... --end ... --seed seed.yaml`.
+
 ### Açık sorular
 
 - Kalan `REQUIRED`: `swing_min_pullback_pips.EURUSD.M1` (kalibrasyon), `v_shape_metric` (Aşama 4).

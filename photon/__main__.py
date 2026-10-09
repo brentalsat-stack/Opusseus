@@ -27,11 +27,22 @@ def main(argv: list[str] | None = None) -> int:
         sp.add_argument("--end", type=date.fromisoformat, required=True, help="dahil")
         if name == "fetch":
             sp.add_argument("--csv", help="indirilen aralığı CSV'ye yaz")
+    st = sub.add_parser("structure", help="yapı olaylarını bul: CSV + işaretli grafik (doğrulama)")
+    st.add_argument("--config", default=str(DEFAULT_PATH))
+    st.add_argument("--source", choices=["OANDA_PRACTICE", "DUKASCOPY"])
+    st.add_argument("--pair")
+    st.add_argument("--tf", required=True, choices=["D1", "H4", "M15", "M1"])
+    st.add_argument("--start", type=date.fromisoformat, required=True)
+    st.add_argument("--end", type=date.fromisoformat, required=True, help="dahil")
+    st.add_argument("--seed", required=True, help="başlangıç yapısı YAML (cold start tanımsız: Q-S01)")
+    st.add_argument("--out", default="structure_out")
     args = ap.parse_args(argv)
 
     cfg = load_config(args.config)
     if args.cmd in ("fetch", "data-check"):
         return _data_cmd(cfg, args)
+    if args.cmd == "structure":
+        return _structure_cmd(cfg, args)
     reports = validate_all(cfg)
     for name, r in reports.items():
         print(f"{'READY  ' if r.ok else 'BLOCKED'} {name}")
@@ -44,6 +55,39 @@ def main(argv: list[str] | None = None) -> int:
         if bad:
             print("\n" + format_errors(bad), file=sys.stderr)
             return 2
+    return 0
+
+
+def _structure_cmd(cfg, args) -> int:
+    from pathlib import Path
+
+    from .data import tools
+    from .data.models import PriceSide, Timeframe
+    from .data.resample import BoundarySpec, resample
+    from .logging_setup import setup_from_config
+    from .structure.params import StructureParams
+    from .structure.report import load_seed_yaml, plot_events, run_structure, write_events_csv
+
+    setup_from_config(cfg)
+    source = args.source or cfg.get("data.backtest.primary")
+    pair = args.pair or cfg.pairs[0]
+    tf = Timeframe(args.tf)
+    cfg.require("data_boundaries")
+    start, end = tools.day_range(args.start, args.end)
+    m1 = tools.load_m1(cfg, source, pair, start, end)
+    if not m1:
+        print("önbellekte M1 yok; önce `photon fetch` çalıştırın", file=sys.stderr)
+        return 2
+    spec = BoundarySpec.from_config(cfg)
+    qc = m1 if tf is Timeframe.M1 else resample(m1, tf, spec)
+    side = PriceSide(cfg.get("candle_price_side"))
+    candles = [c.to_candle(side) for c in qc if c.complete]   # yalnızca kapanmış mumlar
+    seed, hist = load_seed_yaml(args.seed, candles)
+    eng = run_structure(candles, StructureParams.from_config(cfg, pair, tf), seed, hist)
+    out = Path(args.out)
+    n = write_events_csv(eng.events, out / f"{pair}_{tf.value}_structure.csv")
+    plot_events(candles, eng.events, out / f"{pair}_{tf.value}_structure.png")
+    print(f"{n} olay → {out}/")
     return 0
 
 
