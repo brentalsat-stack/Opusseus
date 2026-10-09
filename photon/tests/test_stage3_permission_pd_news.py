@@ -145,3 +145,24 @@ def test_fetch_uses_http_get_and_url():
     assert len(ev) == 6 and seen[0].startswith("https://")
     with pytest.raises(RuntimeError):
         fetch_forexfactory("u", lambda u, h: (404, b"", {}))
+
+
+def test_q_p1_m15_choch_only_counts_after_4h_poi_mitigation():
+    from photon.strategy.permission import m15_choch_after_mitigation
+    from photon.structure.models import EventType, StructureEvent
+    mit = datetime(2021, 9, 1, 10, 0, tzinfo=UTC)
+
+    def e(minute, d=B, warm=False, typ=EventType.CHOCH):
+        return StructureEvent(Timeframe.M15, typ, d, D("1.1"), 5, datetime(2021, 9, 1, 10, minute, tzinfo=UTC), False, warmup=warm)
+    assert not m15_choch_after_mitigation([e(0)], mit, B)                    # aynı mum → sayılmaz
+    assert not m15_choch_after_mitigation([StructureEvent(Timeframe.M15, EventType.CHOCH, B, D("1.1"), 1,
+                                                          datetime(2021, 9, 1, 9, 45, tzinfo=UTC), False)], mit, B)  # mitigasyondan önce
+    assert m15_choch_after_mitigation([e(15)], mit, B)
+    assert not m15_choch_after_mitigation([e(15, d=S)], mit, B)              # ters yönlü CHoCH
+    assert not m15_choch_after_mitigation([e(15, warm=True)], mit, B)        # warm-up
+    assert not m15_choch_after_mitigation([e(15, typ=EventType.BOS)], mit, B)
+
+
+def test_q_p6_mixed_management_decision_in_config():
+    assert load_config().get("target_allocation.mixed") == {"same_as": "pro_trend"}
+    load_config().require("management")

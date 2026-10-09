@@ -10,7 +10,7 @@ import yaml
 
 from ..data.models import Candle, Timeframe
 from .engine import StructureEngine
-from .models import EventType, Seed, StructureEvent, Trend
+from .models import Diagnostic, EventType, Seed, StructureEvent, Trend
 from .params import StructureParams
 
 _COLS = ["time_utc", "tf", "type", "dir", "level", "break_index", "by_close", "rule", "note", "warmup",
@@ -116,3 +116,25 @@ def plot_events(candles: Sequence[Candle], events: Sequence[StructureEvent], pat
     p.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(p, dpi=110)
     plt.close(fig)
+
+
+def write_diagnostics_csv(diags: Iterable[Diagnostic], path: str | Path) -> int:
+    p = Path(path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    n = 0
+    with p.open("w", newline="", encoding="utf-8") as fh:
+        w = csv.writer(fh)
+        w.writerow(["time_utc", "kind", "index", "detail"])
+        for d in diags:
+            w.writerow([d.time.strftime("%Y-%m-%dT%H:%M:%SZ"), d.kind, d.index, d.detail])
+            n += 1
+    return n
+
+
+def summarize_diagnostics(diags: Sequence[Diagnostic], examples: int = 3) -> str:
+    from collections import Counter
+    c = Counter(d.kind for d in diags)
+    lines = [f"Q-S03 tanılama: toplam {len(diags)} (a={c.get('Q-S03a', 0)}: aday internal low yok; b={c.get('Q-S03b', 0)}: CHoCH sonrası referans yok)"]
+    for d in diags[:examples]:
+        lines.append(f"  [{d.kind}] {d.time:%Y-%m-%d %H:%M} UTC — {d.detail}")
+    return "\n".join(lines)

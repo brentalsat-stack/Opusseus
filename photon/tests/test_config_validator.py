@@ -29,7 +29,7 @@ def test_blocker_free_modules_ready_with_pending_fields(cfg):
         require(cfg, m)  # fırlatmamalı
 
 
-@pytest.mark.parametrize("m", ["structure_m1", "liquidity", "strategy", "signals", "backtest"])
+@pytest.mark.parametrize("m", ["structure_m1", "vshape", "strategy", "signals", "backtest"])
 def test_pending_modules_blocked(cfg, m):
     assert not validate_module(cfg, m).ok
     with pytest.raises(ConfigError):
@@ -58,7 +58,7 @@ def test_strategy_error_names_dependency_gaps(cfg):
     with pytest.raises(ConfigError) as ei:
         require(cfg, "strategy")
     msg = str(ei.value)
-    assert "v_shape_metric" in msg and "bağımlılıklar hazır değil: liquidity" in msg
+    assert "v_shape_metric" in msg and "vshape" in msg
 
 
 @pytest.mark.parametrize("bad", [None, "", "REQUIRED", "  "])
@@ -83,7 +83,7 @@ def test_blocked_module_does_not_affect_independent_module(cfg):
 
 def test_filling_pending_fields_unblocks(cfg):
     c = mutate(cfg, "v_shape_metric", {"type": "TEST"})
-    assert validate_module(c, "liquidity").ok and validate_module(c, "strategy").ok
+    assert validate_module(c, "vshape").ok and validate_module(c, "strategy").ok
     c = mutate(cfg, "blackout.tz", "REQUIRED")
     assert not validate_module(c, "session_blackout").ok
 

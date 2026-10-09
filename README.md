@@ -93,6 +93,11 @@ Otomatik warm-up (Q-S01), outside bar çözümü (Q-S04), açık sorular Q-S07/Q
 
 Kural→kod→test tablosu ve **Q-P1..Q-P7 açık soruları**: `photon/risk/README.md`.
 
+### Aşama 4 (zon, likidite, POI puanlama)
+
+`photon/zones/`, `photon/liquidity/`, `photon/strategy/poi.py`. Kural→kod→test tablosu, **üç onay önerisi** (zon→BOS bağlama, V-shape ölçütü, PD-R003 range) ve açık sorular: `photon/zones/README.md`.
+Doğrulama: `python -m photon zones --tf M15 --start 2021-09-01 --end 2021-09-30`.
+
 ### Açık sorular
 
 - Kalan `REQUIRED`: `swing_min_pullback_pips.EURUSD.M1` (kalibrasyon), `v_shape_metric` (Aşama 4).

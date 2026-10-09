@@ -61,6 +61,8 @@ class StructureEvent:
     note: str = ""              # örn. "OUTSIDE_BAR_RESOLVED" (Q-S04)
     rule: str = ""              # kural ID'si
     warmup: bool = False        # True: warm-up döneminde oluştu → yalnızca yapıyı kurar, sinyal üretmez (Q-S01)
+    level_index: Optional[int] = None    # kırılan seviyenin oluştuğu mum indeksi
+    origin_index: Optional[int] = None   # kırılımı yapan hareketin başladığı uç mumu (BOS: kutu ucu; CHoCH: pullback başlangıcı) — zon→BOS bağlaması (SD-R005)
 
     @property
     def signal_capable(self) -> bool:
@@ -96,3 +98,12 @@ class Seed:
     swing_high_confirmed: bool          # trendin yönündeki uç (BULL'da high, BEAR'da low) onaylı mı
     internal_trend: Trend
     internal_ref_index: int             # internal_trend BULL: referans low'un, BEAR: referans high'ın mum indeksi
+
+
+@dataclass(frozen=True)
+class Diagnostic:
+    """Q-S03 vb. belgelenmiş köşe durumlar (olay değil; sinyali etkilemez)."""
+    kind: str            # "Q-S03a" (aday internal low yok) | "Q-S03b" (CHoCH sonrası aday internal high yok)
+    index: int
+    time: datetime
+    detail: str

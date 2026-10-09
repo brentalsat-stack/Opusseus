@@ -500,3 +500,38 @@ def test_csv_and_chart_and_seed_yaml(tmp_path):
     assert header.startswith("time_utc,tf,type,dir,level") and any(",BOS,BULL," in l for l in lines)
     plot_events(cs, eng.events, tmp_path / "e.png")
     assert (tmp_path / "e.png").stat().st_size > 1000
+
+
+# ---------------- Q-S03 tanılama (sayaç + örnek) ----------------
+def test_q_s03a_no_candidate_low_is_recorded_not_silent():
+    e = ie([(5, 0), (20, 8), (30, 18), (28, 12), (26, 9), (24, 6)])
+    assert e.ipend == (px(30), 2)
+    before = e.iref
+    evs = e.update(bar(6, 32, 3, c=20))                  # pend kırıldı, ama pullback boyunca her mum yeni dip + kırılış mumu daha düşük dip
+    assert evs == [] and e.iref == before                # referans değişmedi
+    (d,) = e.diagnostics
+    assert d.kind == "Q-S03a" and d.index == 6 and "aday internal low yok" in d.detail
+
+
+def test_q_s03b_no_candidate_high_after_choch_is_recorded():
+    e = ie([(5, 0), (12, 4), (14, 6), (16, 8)])
+    evs = types(e.update(bar(4, 18, -1, c=10)), EventType.CHOCH)
+    assert len(evs) == 1 and evs[0].origin_index is not None
+    (d,) = e.diagnostics
+    assert d.kind == "Q-S03b" and e.state().internal_high is None
+
+
+def test_diagnostics_summary_and_csv(tmp_path):
+    from photon.structure.report import summarize_diagnostics, write_diagnostics_csv
+    e = ie([(5, 0), (20, 8), (30, 18), (28, 12), (26, 9), (24, 6)])
+    e.update(bar(6, 32, 3, c=20))
+    txt = summarize_diagnostics(e.diagnostics)
+    assert "toplam 1" in txt and "a=1" in txt and "Q-S03a" in txt
+    assert write_diagnostics_csv(e.diagnostics, tmp_path / "d.csv") == 1
+
+
+def test_event_origin_and_level_indices():
+    e = up_engine()
+    (bos,) = types(e.update(bar(6, 45, 30, c=42)), EventType.BOS)
+    assert bos.level_index == 2 and bos.origin_index == 4        # kırılan high idx2, hareketin başladığı dip idx4 (kutu min)
+    assert [p.index for p in e.swing_log] == [0, 4]               # seed strong + yeni strong

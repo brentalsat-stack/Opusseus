@@ -17,12 +17,14 @@
 
 Config kapıları: `risk`, `risk_sizing`, `risk_stops`, `session`, `session_blackout`, `news` (hepsi hazır; `strategy` hâlâ `v_shape_metric` bekliyor).
 
-## Q-S06 — çözüm önerisi (onay gerekir)
+## Q-S06 — ONAYLANDI (kullanıcı kararı)
 P/D, TF'nin **onaylı swing aralığı** [swing_low, swing_high] üzerinden hesaplanır (POI puanı #9 ve PD-R003 "M15 swing range"
 ile tutarlı). Uç henüz onaylı değilse (BOS sonrası yeni high/low) P/D **bilinmez** (`None`); internal aralık üretilmez.
 `price == EQ` → ne premium ne discount.
 
-## Açık sorular
+## Kararlar (kullanıcı onayı) ve açık sorular
+
+Onaylandı: Q-P1 (M15 CHoCH = 4H POI mitigasyonundan SONRA M15'te işlem yönünde oluşan CHoCH; öncesi sayılmaz — `m15_choch_after_mitigation`), Q-P2, Q-P3, Q-P4, Q-P5 (backtest'te haber notu UNKNOWN), Q-P6 (MIXED = pro-trend gibi yönet: %20@4R, %60 M15 zayıf swing, %20 4H zayıf swing — `target_allocation.mixed`), Q-P7. Aşağıdaki metin onay öncesi kayıttır.
 
 ```text
 ID: Q-P1  TÜR: IMPLEMENTATION DECISION REQUIRED  İLGİLİ KURAL: EN-R006 ("M15 CHoCH")

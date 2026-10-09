@@ -5,6 +5,7 @@ Onaysız uçta aralık değişebileceğinden P/D bilinmez (None). Internal aral�
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
 from decimal import Decimal
 from enum import Enum
 from typing import Optional
@@ -50,3 +51,31 @@ def aligned(direction: Trend, pd: Optional[PD]) -> Optional[bool]:
     if pd is None:
         return None
     return pd is (PD.DISCOUNT if direction is Trend.BULL else PD.PREMIUM)
+
+
+# ---- PD-R003: range ortası filtresi (DECISIONS §3, ZORUNLU kapı) ----
+def position_pct(price: Decimal, low: Decimal, high: Decimal) -> Decimal:
+    """Fiyatın range içindeki yeri, % (0 = low, 100 = high); range dışında <0 / >100 olabilir."""
+    if high <= low:
+        raise ValueError("high > low olmalı")
+    return (price - low) / (high - low) * 100
+
+
+@dataclass(frozen=True)
+class RangeFilterResult:
+    passed: bool
+    reason: str                       # "" | RANGE_UNKNOWN | MIDDLE_OF_RANGE | WRONG_SIDE_OF_RANGE
+    position_pct: Optional[Decimal]
+
+
+def range_filter(direction: Trend, zone_eq: Decimal, state: MarketState, band_pct: Decimal) -> RangeFilterResult:
+    """PD-R003: long yalnız range'in alt %band'ında, short yalnız üst %band'ında. Uygulanan range: `state` (M15 swing range
+    varsayılan, Q-Z9); ölçülen nokta: zonun EQ'su. Range bilinmiyorsa kapı KAPALI (fail-closed)."""
+    r = swing_range(state)
+    if r is None:
+        return RangeFilterResult(False, "RANGE_UNKNOWN", None)
+    pct = position_pct(zone_eq, *r)
+    ok = pct <= band_pct if direction is Trend.BULL else pct >= 100 - band_pct
+    return RangeFilterResult(ok, "" if ok else "MIDDLE_OF_RANGE" if band_pct <= pct <= 100 - band_pct
+                             else "WRONG_SIDE_OF_RANGE", pct)
+

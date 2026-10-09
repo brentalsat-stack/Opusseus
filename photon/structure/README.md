@@ -30,9 +30,11 @@ Yapı yalnızca kapanmış mumlarla güncellenir. Bearish mantık, bullish mant�
 | Q-S03 | KARAR | Aday yoksa referans değişmez / CHoCH sonrası referans boş kalabilir (log uyarısı). |
 | Q-S04 | KARAR | Outside bar sırası alt TF ile çözülür: `SubTfResolver` (M15→M1; aynı dakikada ikisi de → tick; M1→tick). HistData'da tick yok → aynı dakikada ikisi de kırılırsa çözülemez. Alt veri yoksa/çözülemezse **`OUTSIDE_BAR` olayı (sinyal yok)**; "CHoCH önce" varsayımı kaldırıldı. |
 | Q-S05 | KARAR | Tek BOS. Çift BOS kodlanmadı (`NotImplementedError`). |
-| Q-S06 | Aşama 3 | Öneri: onaylı swing aralığı (`structure/pd.py`; bkz. `photon/risk/README.md`). |
+| Q-S06 | KARAR | P/D onaylı swing aralığından; uç onaysızsa P/D bilinmiyor (`structure/pd.py`). |
+| Q-S07 | KARAR (kullanıcı kararı) | MS-R008'in iki yönlü bootstrap uygulaması (aşağıda). |
+| Q-S08 | KARAR | Çözülemeyen outside bar'da iç yapı değişmez, sinyal yok. |
 
-Yeni açık sorular (aşağıda): Q-S07, Q-S08.
+Q-S07/Q-S08 onaylandı. Yeni açık soru: **Q-S09** (Q-S03 tanılaması: bkz. `photon/zones/README.md` sonu).
 
 ```text
 ID: Q-S07  TÜR: IMPLEMENTATION DECISION REQUIRED  İLGİLİ KURAL: MS-R006/R008 (cold start, U-15)

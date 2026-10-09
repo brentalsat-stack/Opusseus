@@ -40,6 +40,15 @@ def main(argv: list[str] | None = None) -> int:
     st.add_argument("--end", type=date.fromisoformat, required=True, help="dahil")
     st.add_argument("--seed", help="elle başlangıç yapısı YAML; verilmezse otomatik warm-up (config warmup_period)")
     st.add_argument("--out", default="structure_out")
+    zn = sub.add_parser("zones", help="zonları bul (SD-R001..R007): CSV + grafik (doğrulama)")
+    zn.add_argument("--config", default=str(DEFAULT_PATH))
+    zn.add_argument("--source", choices=["HISTDATA", "OANDA_PRACTICE", "DUKASCOPY"])
+    zn.add_argument("--pair")
+    zn.add_argument("--tf", required=True, choices=["D1", "H4", "M15"])
+    zn.add_argument("--start", type=date.fromisoformat, required=True)
+    zn.add_argument("--end", type=date.fromisoformat, required=True, help="dahil")
+    zn.add_argument("--out", default="zones_out")
+    zn.add_argument("--all", action="store_true", help="grafikte geçersiz zonları da çiz")
     args = ap.parse_args(argv)
 
     cfg = load_config(args.config)
@@ -56,6 +65,8 @@ def main(argv: list[str] | None = None) -> int:
         return _data_cmd(cfg, args)
     if args.cmd == "structure":
         return _structure_cmd(cfg, args)
+    if args.cmd == "zones":
+        return _zones_cmd(cfg, args)
     reports = validate_all(cfg)
     for name, r in reports.items():
         print(f"{'READY  ' if r.ok else 'BLOCKED'} {name}")
@@ -82,7 +93,7 @@ def _structure_cmd(cfg, args) -> int:
     from .logging_setup import setup_from_config
     from .structure.params import StructureParams
     from .structure.report import (load_seed_yaml, plot_events, run_structure, run_structure_auto,
-                                   write_events_csv)
+                                   summarize_diagnostics, write_diagnostics_csv, write_events_csv)
 
     setup_from_config(cfg)
     source = args.source or cfg.get("data.backtest.primary")
@@ -119,6 +130,54 @@ def _structure_cmd(cfg, args) -> int:
     plot_events(candles, eng.events, out / f"{pair}_{tf.value}_structure.png", first_index=first)
     live = sum(1 for e in eng.events if not e.warmup)
     print(f"{n} olay ({live} canlı, {n - live} warm-up) → {out}/; trend={eng.state().swing_trend.value}")
+    write_diagnostics_csv(eng.diagnostics, out / f"{pair}_{tf.value}_diagnostics.csv")
+    print(summarize_diagnostics(eng.diagnostics))
+    return 0
+
+
+def _zones_cmd(cfg, args) -> int:
+    from datetime import timedelta
+    from pathlib import Path
+
+    from .data import tools
+    from .data.models import PriceSide, Timeframe
+    from .data.resample import BoundarySpec, resample
+    from .data.resolver import SubTfResolver
+    from .logging_setup import setup_from_config
+    from .structure.params import StructureParams
+    from .structure.report import summarize_diagnostics
+    from .zones.engine import ZoneParams
+    from .zones.report import plot_zones, run_zones, summarize, write_zones_csv
+
+    setup_from_config(cfg)
+    source = args.source or cfg.get("data.backtest.primary")
+    pair = args.pair or cfg.pairs[0]
+    tf = Timeframe(args.tf)
+    cfg.require("data_boundaries", "structure_warmup")
+    start, end = tools.day_range(args.start, args.end)
+    warm_days = cfg.get(f"warmup_period.{tf.value}")
+    m1 = tools.load_m1(cfg, source, pair, start - timedelta(days=warm_days), end)
+    if not m1:
+        print("önbellekte M1 yok; önce `photon import-histdata` / `photon fetch` çalıştırın", file=sys.stderr)
+        return 2
+    side = PriceSide(cfg.get("candle_price_side"))
+    qc = resample(m1, tf, BoundarySpec.from_config(cfg))
+    candles = [c.to_candle(side) for c in qc if c.complete]
+    have = (start - candles[0].open_time).days
+    if have < warm_days:
+        print(f"UYARI warm-up: {tf.value} için {warm_days} gün gerekli, veri {candles[0].open_time:%Y-%m-%d} tarihinde "
+              f"başlıyor ({max(have, 0)} gün) → mevcut verinin tamamı warm-up", file=sys.stderr)
+    st, ze = run_zones(candles, StructureParams.from_config(cfg, pair, tf), ZoneParams.from_config(cfg, pair, tf),
+                       start, SubTfResolver(m1, side))
+    first = next((i for i, c in enumerate(candles) if c.open_time >= start), 0)
+    zones = ze.zones
+    live = [z for z in zones if not z.warmup]
+    out = Path(args.out)
+    n = write_zones_csv(zones, candles, out / f"{pair}_{tf.value}_zones.csv", ze)
+    plot_zones(candles, zones, out / f"{pair}_{tf.value}_zones.png", first, only_valid=not args.all)
+    print(f"{n} zon ({len(live)} canlı dönemde doğan) → {out}/")
+    print(summarize(live))
+    print(summarize_diagnostics(st.diagnostics, 0))
     return 0
 
 

@@ -220,20 +220,24 @@ MODULES: dict[str, ModuleSpec] = {
         R("require_inducement", is_bool),
         R("require_liquidation", is_bool),
         R("eqh_tolerance.pips", num_gt(0)),
-        R("v_shape_metric"),
     ), depends_on=("structure",)),
+    "poi_scoring": ModuleSpec((  # DECISIONS §3 (10 kriter, eşik puan yok)
+        *(R(f"poi_scoring.weights.{k}", num_gt(0)) for k in POI_CRITERIA),
+        R("range_extreme_filter.enabled", is_bool),
+        R("range_extreme_filter.allowed_band_pct", num_gt(0)),
+        R("range_extreme_filter.range_tf", one_of("D1", "H4", "M15")),
+    ), depends_on=("data",)),
+    "vshape": ModuleSpec((  # Q-Z8: ölçüt onaylanana kadar REQUIRED
+        R("v_shape_metric"),
+    ), depends_on=("data",)),
     "strategy": ModuleSpec((  # POI-R004, EN-R001..R009
         R("entry_type", one_of("RISK", "CONFIRMATION", "DOUBLE_CONFIRMATION")),
         R("decisional_flip_requires_sweep", is_bool),
         R("require_pd_alignment", is_bool),
         R("counter_htf_require_double_bos", is_bool),
         R("pro_trend_reference", one_of("H4", "M15", "BOTH")),
-        R("range_extreme_filter.enabled", is_bool),
-        R("range_extreme_filter.allowed_band_pct", num_gt(0)),
-        R("range_extreme_filter.range_tf", one_of("D1", "H4", "M15")),
         R("swing_hold_confirmation", one_of("H4_TREND_CHANGE", "H4_CHOCH", "M15_CHOCH")),
-        *(R(f"poi_scoring.weights.{k}", num_gt(0)) for k in POI_CRITERIA),
-    ), depends_on=("structure", "zones", "liquidity", "risk", "risk_sizing", "risk_stops",
+    ), depends_on=("structure", "zones", "liquidity", "poi_scoring", "vshape", "risk", "risk_sizing", "risk_stops",
                    "session", "session_blackout")),
     "management": ModuleSpec((  # MG-R001..R006
         R("risk_removal_method", one_of("PARTIAL", "BE_AT_FIRST_EXEC_BOS")),
@@ -243,6 +247,7 @@ MODULES: dict[str, ModuleSpec] = {
         R("target_allocation.pro_trend.h4_weak_swing_pct", pct_0_100),
         R("target_allocation.counter_trend.allocation_pct", pct_0_100),
         R("target_allocation.range.allocation_pct", pct_0_100),
+        R("target_allocation.mixed.same_as", one_of("pro_trend")),
     ), depends_on=("risk",)),
     "news": ModuleSpec((  # DECISIONS §6: engellemez, uyarı notu
         R("news_filter.mode", one_of("WARN_ONLY")),

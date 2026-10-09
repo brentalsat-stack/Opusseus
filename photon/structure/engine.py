@@ -17,7 +17,7 @@ from decimal import Decimal
 from typing import Optional
 
 from ..data.models import Candle, Timeframe
-from .models import (EventType, InternalRef, Kind, MarketState, Seed, Strength, StructureEvent,
+from .models import (Diagnostic, EventType, InternalRef, Kind, MarketState, Seed, Strength, StructureEvent,
                      SwingPoint, Trend)
 from .params import StructureParams
 
@@ -48,6 +48,8 @@ class StructureEngine:
         self.C: list[Decimal] = []
         self.T: list = []
         self.events: list[StructureEvent] = []
+        self.swing_log: list[SwingPoint] = []      # oluşan strong noktalar + onaylanan swing uçları (likidite seviyeleri için)
+        self.diagnostics: list[Diagnostic] = []    # Q-S03 köşe durumları (sayaç + örnek)
         # swing
         self.s = 0                      # +1 BULL, -1 BEAR, 0 tanımsız
         self.strong: Optional[tuple[Decimal, int]] = None   # (ham fiyat, indeks)
@@ -109,6 +111,7 @@ class StructureEngine:
         self.e = 1 if seed.internal_trend is Trend.BULL else -1
         self.iref = (self.e * self._lo(seed.internal_ref_index, self.e), seed.internal_ref_index)
         self.ipend = None
+        self._log_strong(s)
         for t in range(max(run_idx, seed.internal_ref_index) + 1, n):
             ev = self._step_swing(t) + self._step_internal(t)
             if any(x.type in (EventType.BOS, EventType.CHOCH) for x in ev):
@@ -154,7 +157,9 @@ class StructureEngine:
                     if self._lo(i, s) - self._lo(i + 1, s) < pip:
                         self.iref = (s * self._lo(i, s), i)
                         break
-                return [self._mk_event(EventType.BOS, self._trend(s), run.price, t, True, old, "BOOTSTRAP", "MS-R006/R007")]
+                self._log_strong(s)
+                return [self._mk_event(EventType.BOS, self._trend(s), run.price, t, True, old, "BOOTSTRAP", "MS-R006/R007",
+                                       level_index=run.index, origin_index=k)]
         thr = self.p.min_pullback_pips * self.p.pip_size
         for s in (1, -1):
             run = self._bh if s > 0 else self._bl
@@ -185,9 +190,15 @@ class StructureEngine:
         return []
 
     # ---- swing: MS-R006, R007, R008, R009, R014 ----
-    def _mk_event(self, typ, dir_, level, idx, by_close, ref=None, note="", rule="") -> StructureEvent:
+    def _mk_event(self, typ, dir_, level, idx, by_close, ref=None, note="", rule="",
+                  level_index=None, origin_index=None) -> StructureEvent:
         warm = self.live_from is not None and self.T[idx] < self.live_from
-        return StructureEvent(self.tf, typ, dir_, level, idx, self.T[idx], by_close, ref, note, rule, warm)
+        return StructureEvent(self.tf, typ, dir_, level, idx, self.T[idx], by_close, ref, note, rule, warm,
+                              level_index, origin_index)
+
+    def _log_strong(self, s: int) -> None:
+        sp, si = self.strong
+        self.swing_log.append(self._point(Kind.LOW if s > 0 else Kind.HIGH, sp, si, Strength.STRONG, True))
 
     def _point(self, kind: Kind, price: Decimal, idx: int, strength: Strength, confirmed: bool) -> SwingPoint:
         return SwingPoint(self.tf, price, idx, kind, strength, confirmed)
@@ -205,7 +216,9 @@ class StructureEngine:
             self.strong = new_strong
             self.run = _Run(self.s * self._hi(t, self.s), t, False)
             self._min_after = None
-            return [self._mk_event(EventType.BOS, self._trend(self.s), sp, t, True, old, rule="MS-R009")]
+            self._log_strong(self.s)
+            return [self._mk_event(EventType.BOS, self._trend(self.s), sp, t, True, old, rule="MS-R009",
+                                   level_index=si, origin_index=lo_i)]
         r = self.run
         # MS-R006/R007: onaylı swing high'ın üstünde KAPANIŞ → BOS; kutu kuralıyla yeni strong low
         if r.confirmed and cl - s * r.price >= pip:
@@ -214,7 +227,9 @@ class StructureEngine:
             self.strong = (s * self._lo(k, s), k)
             self.run = _Run(s * self._hi(t, s), t, False)
             self._min_after = None
-            return [self._mk_event(EventType.BOS, self._trend(s), r.price, t, True, old, rule="MS-R006/R007")]
+            self._log_strong(s)
+            return [self._mk_event(EventType.BOS, self._trend(s), r.price, t, True, old, rule="MS-R006/R007",
+                                   level_index=r.index, origin_index=k)]
         if r.confirmed:
             return []   # wick ile geçip içeride kapanış = BOS değil (MS-R006)
         # MS-R008: onaysız uç — yeni uç mu, yoksa geri çekilme mi?
@@ -230,6 +245,7 @@ class StructureEngine:
         if ok and (r.index - si + 1) >= self.p.min_swing_candles:
             self.run = _Run(r.price, r.index, True)
             kind = Kind.HIGH if s > 0 else Kind.LOW
+            self.swing_log.append(self._point(kind, r.price, r.index, Strength.WEAK, True))
             return [self._mk_event(EventType.SWING_CONFIRMED, self._trend(s), r.price, t, False,
                                    self._point(kind, r.price, r.index, Strength.WEAK, True), rule="MS-R008")]
         return []
@@ -256,9 +272,17 @@ class StructureEngine:
                 new_ref = (e * self._hi(i, e), i)
                 break
         if new_ref is None:
-            log.warning("%s idx=%d: CHoCH sonrası internal referans bulunamadı (Q-S03)", self.tf.value, t)
+            adv = "high" if e > 0 else "low"           # CHoCH öncesi iç yapının 'ileri' ucu (bullish: high, bearish: low)
+            self.diagnostics.append(Diagnostic(
+                "Q-S03b", t, self.T[t],
+                f"CHoCH ({self.T[t]:%Y-%m-%d %H:%M}) sonrası internal referans yok: [{ref_idx}..{t - 1}] aralığında "
+                f"'sonraki mumun {adv}'ı onu kıramadı' koşulunu sağlayan aday yok; kırılış mumunun {adv}'ı "
+                f"({e * self._hi(t, e)}) önceki mumunkini ({e * self._hi(t - 1, e)}) aştı ve aralıkta her mum yeni {adv} yaptı"))
+            log.debug("%s idx=%d Q-S03b", self.tf.value, t)
+        origin = self.ipend[1] if self.ipend is not None else (new_ref[1] if new_ref is not None else t - 1)
         self.e, self.iref, self.ipend = -e, new_ref, None
-        return [self._mk_event(EventType.CHOCH, self._trend(self.e), ref_price, t, False, None, note, "MS-R005")]
+        return [self._mk_event(EventType.CHOCH, self._trend(self.e), ref_price, t, False, None, note, "MS-R005",
+                               level_index=ref_idx, origin_index=origin)]
 
     def _apply_pend_break(self, t: int) -> list[StructureEvent]:
         """MS-R003: internal high wick ile kırıldı → yeni internal low = kırılımdan önceki EN YAKIN aday low."""
@@ -271,7 +295,13 @@ class StructureEngine:
                 break
         self.ipend = None
         if found is None:
-            log.warning("%s idx=%d: internal low adayı bulunamadı; referans değişmedi (Q-S03)", self.tf.value, t)
+            back = "low" if e > 0 else "high"          # pullback ucu (bullish: low, bearish: high)
+            self.diagnostics.append(Diagnostic(
+                "Q-S03a", t, self.T[t],
+                f"internal {'high' if e > 0 else 'low'} ({self.T[t]:%Y-%m-%d %H:%M}) kırıldı ama [{pend_idx}..{t - 1}] içinde "
+                f"aday internal {back} yok: pullback boyunca her mum yeni {back} yapmış ve kırılış mumunun {back}'ı "
+                f"({e * self._lo(t, e)}) önceki mumunkini ({e * self._lo(t - 1, e)}) geçti → referans DEĞİŞMEDİ"))
+            log.debug("%s idx=%d Q-S03a", self.tf.value, t)
             return []
         self.iref = found
         return [self._mk_event(EventType.INTERNAL_REF, self._trend(e), found[0], t, False, None, rule="MS-R003")]

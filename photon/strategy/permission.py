@@ -5,14 +5,17 @@ Tablo (FINAL_SPEC §4 / RULE_DATABASE EN-R006):
   PRO/COUNTER     → (a) önce M15 CHoCH (→ PRO/PRO) veya (b) fiyat 4H POI'yi mitige ettiyse
   COUNTER/COUNTER → işlem yok; M15 CHoCH beklenir (sonra COUNTER/PRO satırı)
   COUNTER/PRO     → HTF (≥M15) POI içinde M1 modeli serbest
-`m15_choch_toward_dir`: çağıranın sağladığı bayrak (Q-P1: kaynak "M15 CHoCH"un nasıl türetileceğini tanımlamıyor).
+`m15_choch_toward_dir`: `m15_choch_after_mitigation(...)` ile türetilir (Q-P1, kullanıcı kararı).
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
 
-from ..structure.models import Trend
+from datetime import datetime
+from typing import Iterable
+
+from ..structure.models import EventType, StructureEvent, Trend
 
 
 class TrendClass(str, Enum):
@@ -65,3 +68,11 @@ def check_permission(trend_4h: Trend, trend_m15: Trend, direction: Trend, *, pri
         return (Permission(True, row, "COUNTER/PRO: HTF (≥M15) POI içinde M1 modeli serbest") if price_in_htf_poi else
                 Permission(False, row, "COUNTER/PRO ama fiyat ≥M15 POI içinde değil"))
     return Permission(False, row, "COUNTER/COUNTER: işlem yok, M15 CHoCH bekle")
+
+
+def m15_choch_after_mitigation(m15_events: Iterable[StructureEvent], mitigation_time: datetime,
+                               direction: Trend) -> bool:
+    """Q-P1 (kullanıcı kararı): M15 CHoCH = fiyat 4H POI'ye dokunduktan (mitigasyon) SONRA M15'te işlem yönünde oluşan CHoCH
+    olayı. Mitigasyondan önceki (veya aynı mumdaki; mum içi sıra bilinmez) CHoCH ve warm-up olayları sayılmaz."""
+    return any(e.type is EventType.CHOCH and e.dir is direction and not e.warmup and e.time > mitigation_time
+               for e in m15_events)

@@ -97,6 +97,7 @@ target_allocation:                      # D-13
   counter_trend:
     first_target: NEXT_M15_SD_ZONE_OR_M15_SWING
     allocation_pct: 80                  # KARAR; %20@4R ile toplam 100
+  mixed: {same_as: pro_trend}           # Q-P6 KULLANICI KARARI: 4H yönde + M15 ters (MIXED) = pro-trend gibi yönet
   range:
     targets: RANGE_EXTREMES
     allocation_pct: 100                 # KARAR: risk kaldırma sonrası kalan hacmin tamamı
