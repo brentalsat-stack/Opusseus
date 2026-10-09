@@ -53,6 +53,28 @@ Kaynakta/karar dosyasında olmayan hiçbir değere varsayılan atanmaz. Kendi de
   parite eklemek config'e girdi eklemektir, kod değişmez.
 - Logging: ekran + döner dosya (`logging.file`, UTC damgalı) — `photon.logging_setup.setup_from_config(cfg)`.
 
+### Veri katmanı (Aşama 1)
+
+```bash
+# Dukascopy (hesap gerekmez) veya OANDA practice (export OANDA_API_TOKEN=...)
+python -m photon fetch --source DUKASCOPY --start 2021-09-01 --end 2021-09-30 --csv data_samples/EURUSD_M1_2021-09.csv
+python -m photon data-check --source DUKASCOPY --start 2021-09-01 --end 2021-09-30   # düzeltmeden raporlar
+```
+
+- `photon/data/sources/`: `dukascopy.py` (saatlik .bi5 tick → M1, ham dosyalar diskte önbellekte, 429'da bekleyip yeniden dener),
+  `oanda.py` (v20 practice, `price=BA`, yalnızca okuma uç noktası, jeton ortam değişkeninde), `ibkr.py` (ib_async, `readonly=True`, emir kodu yok).
+- `resample.py`: tick→M1→M15→H4→D1 (bid ve ask ayrı OHLC); eksik dakikalar doldurulmaz, sırasız girdi hata verir.
+- `validate.py`: tekrar / sırasız / eksik / hafta sonu boşluğu raporu (asla sessizce düzeltmez; T-DATA-01).
+- `cache.py`: SQLite (fiyatlar TEXT=Decimal birebir); indirme parça parça, kesintide devam eder.
+- Kaynak seçimi: `--source`, verilmezse `data.backtest.primary`.
+
+**IMPLEMENTATION DECISION REQUIRED**
+- **Q-D01 — H4/D1 mum sınırları:** kaynakta tanımsız. `candle_boundaries.{tz,d1_open,h4_anchor}` `REQUIRED`; H4/D1 üretimi karar gelene kadar başlamaz (M1/M15 etkilenmez).
+  Seçenek örneği (kaynakta yok): NY 17:00 kapanışı. Uygulanan kural: D1 = `d1_open`'dan sonraki `d1_open`'a (DST günleri 23/25 sa); H4 = `h4_anchor`'dan 4 saatlik adımlar, her `h4_anchor`'da sıfırlanır.
+- **Q-D02 — Yapı hangi fiyatla:** `candle_price_side` (BID|ASK) `REQUIRED`; mid üretilmez. Spread/maliyet için bid+ask birlikte saklanır.
+- **Q-D03 — Hafta sonu etiketi:** raporlamada, Cuma (UTC) başlayıp Pazar/Pzt biten ve Cumartesi'yi tamamen kapsayan boşluk `WEEKEND_GAP`; diğer boşluklar `MISSING`. Yalnızca etiket, veri değişmez.
+- **Q-D04 — OANDA S5/tick:** uygulanmadı (OANDA tick sunmuyor; S5 için `Timeframe` kaynakta yok). Intrabar çözümü Aşama 7'de Dukascopy tick ile.
+
 ### Açık sorular
 
 - Kalan `REQUIRED`: `swing_min_pullback_pips.EURUSD.M1` (kalibrasyon sonucu), `v_shape_metric` (Aşama 4'te önerilip onaylanacak).

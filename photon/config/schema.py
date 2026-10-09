@@ -126,6 +126,10 @@ def non_empty_str(v: Any) -> str | None:
     return None if isinstance(v, str) and v.strip() else "boş olmayan metin olmalı"
 
 
+def is_true(v: Any) -> str | None:
+    return None if v is True else "true olmalı (canlı veri salt-okuma)"
+
+
 def is_false(v: Any) -> str | None:
     return None if v is False else "false olmalı (otomatik emir YOK — DECISIONS §1)"
 
@@ -250,6 +254,36 @@ MODULES: dict[str, ModuleSpec] = {
         R("costs.commission.currency", non_empty_str),
         R("data.backtest.primary"),
     ), depends_on=("signals",)),
+    "data_boundaries": ModuleSpec((  # Aşama 1: Q-D01, Q-D02
+        R("candle_boundaries.tz", iana_tz),
+        R("candle_boundaries.d1_open", hhmm),
+        R("candle_boundaries.h4_anchor", hhmm),
+        R("candle_price_side", one_of("BID", "ASK")),
+    ), depends_on=("data",)),
+    "data_cache": ModuleSpec((
+        R("data.backtest.cache.db", non_empty_str),
+        R("data.backtest.cache.raw_dir", non_empty_str),
+    ), depends_on=("data",)),
+    "hist_dukascopy": ModuleSpec((
+        R("data.backtest.dukascopy.base_url", non_empty_str),
+        R("data.backtest.dukascopy.request_delay_s", num_ge(0)),
+        R("data.backtest.dukascopy.max_retries", int_ge(0)),
+        R(f"pair_params.{PAIR}.symbols.dukascopy", non_empty_str),
+    ), depends_on=("data_cache",)),
+    "hist_oanda": ModuleSpec((
+        R("data.backtest.oanda.rest_host", non_empty_str),
+        R("data.backtest.oanda.token_env", non_empty_str),
+        R(f"pair_params.{PAIR}.symbols.oanda", non_empty_str),
+    ), depends_on=("data_cache",)),
+    "live_feed": ModuleSpec((  # IBKR, salt-okuma
+        R("data.live.provider", one_of("IBKR")),
+        R("data.live.read_only", is_true),
+        R("data.live.venue", non_empty_str),
+        R("data.live.host", non_empty_str),
+        R("data.live.port", int_ge(1)),
+        R("data.live.client_id", int_ge(0)),
+        R(f"pair_params.{PAIR}.symbols.ibkr", non_empty_str),
+    ), depends_on=("data",)),
     "journal": ModuleSpec(),
 }
 

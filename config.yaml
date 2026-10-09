@@ -16,6 +16,7 @@ pair_params:
     pip_value_per_lot: 10            # KARAR (Aşama 0 cevabı): hesap USD
     lot_step: 0.01                   # KARAR
     min_lot: 0.01                    # KARAR
+    symbols: {oanda: EUR_USD, dukascopy: EURUSD, ibkr: EUR.USD}   # kaynak başına enstrüman adı
     units_per_lot: 100000            # sinyalde lot yanında birim göstermek için (standart lot; pip değeri 10 USD ile tutarlı)
 
 account: {currency: USD}
@@ -122,9 +123,23 @@ costs:
     currency: USD
 reference_backtest: {pair: EURUSD, entry_tf: M15, start: "2021-09-01", end: "2021-09-30"}
 
+# Q-D01 IMPLEMENTATION DECISION REQUIRED: H4/D1 mum sınırları kaynakta tanımsız (Aşama 1).
+candle_boundaries:
+  tz: REQUIRED          # örn. IANA saat dilimi adı
+  d1_open: REQUIRED     # "HH:MM" — günlük mumun açılış duvar saati (tz'de)
+  h4_anchor: REQUIRED   # "HH:MM" — H4 mumlarının hizalandığı duvar saati (tz'de)
+# Q-D02 IMPLEMENTATION DECISION REQUIRED: yapı motoruna hangi fiyat verilecek (BID|ASK).
+candle_price_side: REQUIRED
+
 data:
-  live: {provider: IBKR, library: ib_async, symbol: EUR.USD, venue: IDEALPRO, read_only: true}
-  backtest: {primary: OANDA_PRACTICE, fallback: DUKASCOPY}
+  live: {provider: IBKR, library: ib_async, venue: IDEALPRO, read_only: true,
+         host: REQUIRED, port: REQUIRED, client_id: REQUIRED}   # TWS/Gateway bağlantısı (kullanıcı ortamı)
+  backtest:
+    primary: OANDA_PRACTICE             # DECISIONS §1; hesap açılamazsa fallback
+    fallback: DUKASCOPY
+    oanda: {rest_host: api-fxpractice.oanda.com, token_env: OANDA_API_TOKEN}   # jeton ortam değişkeninde
+    dukascopy: {base_url: "https://datafeed.dukascopy.com/datafeed", request_delay_s: 1.5, max_retries: 6}
+    cache: {db: data_cache/photon.sqlite, raw_dir: data_cache/raw}
 
 notifications: [SCREEN, LOG_FILE]
 

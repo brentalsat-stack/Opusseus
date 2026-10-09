@@ -45,4 +45,8 @@ def test_v2_decisions():
 
 def test_only_expected_fields_remain_required():
     from photon.config import find_required
-    assert sorted(find_required(load_config().raw)) == ["swing_min_pullback_pips.EURUSD.M1", "v_shape_metric"]
+    assert sorted(find_required(load_config().raw)) == sorted([
+        "swing_min_pullback_pips.EURUSD.M1", "v_shape_metric",                    # Aşama 4 / kalibrasyon
+        "candle_boundaries.tz", "candle_boundaries.d1_open", "candle_boundaries.h4_anchor",   # Q-D01
+        "candle_price_side",                                                      # Q-D02
+        "data.live.host", "data.live.port", "data.live.client_id"])               # IBKR bağlantısı
