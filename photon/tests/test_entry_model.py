@@ -62,8 +62,8 @@ CHOCH_IDX = 10
 
 
 def build(entry_type="CONFIRMATION", dup="REJECT", opp="REJECT", stop_mode=None, states=None, requires_sweep=False,
-          tracker=None, zones_extra=None, news=None):
-    ep = EntryParams(entry_type, requires_sweep, True, True, dup, opp, 10, 2 * PIP, PIPETTE, D("0.4") * PIP)
+          tracker=None, zones_extra=None, news=None, zone_choice="FLIP_FIRST"):
+    ep = EntryParams(entry_type, requires_sweep, True, True, dup, opp, 10, 2 * PIP, PIPETTE, D("0.4") * PIP, zone_choice)
     sp = StopParams.from_config(CFG, "EURUSD")
     if stop_mode:
         sp = StopParams(sp.pip_size, stop_mode, sp.fixed_sl_pips, sp.sl_buffer_pips, sp.min_sl_pips)

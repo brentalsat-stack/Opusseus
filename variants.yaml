@@ -1,0 +1,30 @@
+# Varyant karşılaştırma (python -m photon backtest-compare --start ... --end ... --variants variants.yaml)
+# Her varyant config.yaml üzerine OVERRIDE'dır (noktalı yol: değer); config.yaml değişmez.
+# DECISIONS'ta "backtest sonrası karşılaştırılacak" denen seçenekler. Hiçbiri karar DEĞİLDİR — yalnızca etki ölçümü.
+variants:
+  - name: V0
+    desc: "mevcut (FIXED_SL 2 pip, CONFIRMATION, flip->extreme)"
+    overrides: {}
+  - name: V1
+    desc: "entry_price_mode=DISTAL (stop zon ucunun 1 pipette ötesi, giriş distal; stop uzunluğu zona göre)"
+    overrides: {entry_price_mode: DISTAL}
+  - name: V2
+    desc: "entry_price_mode=EQ (giriş zon ortası, stop zon ucunun 1 pipette ötesi)"
+    overrides: {entry_price_mode: EQ}
+  - name: V3
+    desc: "FIXED_SL 3 pip"
+    overrides: {fixed_sl_pips: 3}
+  - name: V4
+    desc: "FIXED_SL 5 pip"
+    overrides: {fixed_sl_pips: 5}
+  - name: V5
+    desc: "V1 + extreme (V tepki kutusu) her zaman, flip yerine (EN-R008 C-11 seçeneği)"
+    overrides: {entry_price_mode: DISTAL, entry_zone_choice: EXTREME_ALWAYS}
+  - name: V6
+    desc: "V0 + PD-R003 range filtresi kapalı (yalnızca etki ölçümü; karar değil)"
+    overrides: {range_extreme_filter.enabled: false}
+
+# V7: işlemleri ETKİLEMEZ — taban varyantın işlemleri için V-shape N'e göre puan dağılımı (config'teki N dahil edilir)
+vshape_report:
+  base: V0
+  n_values: [5, 15, 20]

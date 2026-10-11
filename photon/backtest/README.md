@@ -56,3 +56,14 @@ elemelerinde M15 range low/high (+zaman), zon EQ ve yüzde; `NO_ENTRY_ZONE`'da C
 - **Q-Z11** M1 giriş kutusu zon algılamasından bağımsız V tepki kutusu (bkz. `photon/strategy/README.md`). Bu, önceki backtest sonuçlarını DEĞİŞTİRİR (NO_ENTRY_ZONE elemeleri artık sinyale ilerler).
 - **Q-S06 güncellemesi** onaysız uçta MS-R007 kutu aralığı → `RANGE_UNKNOWN` yalnız swing yokken. Bu da `range_filter`/`pd_alignment` sonuçlarını değiştirir.
 - Lookahead şüphesi: kabul edildi (sinyal = mum kapanışı, dolum sonraki mum).
+
+## Varyant karşılaştırma (`backtest-compare`)
+`python -m photon backtest-compare --start 2021-02-01 --end 2021-12-31 --variants variants.yaml [--jobs N] [--out backtest_compare]`
+
+- `variants.yaml`: her varyant config.yaml üzerine **override** (noktalı yol → değer); varsayılan config değişmez. Var olmayan yol hata verir (yazım hatası koruması).
+  V0 mevcut · V1 `entry_price_mode: DISTAL` · V2 `EQ` · V3/V4 `fixed_sl_pips` 3/5 · V5 = V1 + `entry_zone_choice: EXTREME_ALWAYS` · V6 `range_extreme_filter.enabled: false` (yalnız etki ölçümü).
+- `entry_zone_choice` (FLIP_FIRST | EXTREME_ALWAYS) config.yaml'da YOKTUR; kodda varsayılan FLIP_FIRST (= mevcut davranış). Yalnızca varyant override'ı olarak kullanılır (EN-R008 C-11 seçeneği: flip yerine hep V tepki kutusu).
+- V7 (`vshape_report`): işlemleri etkilemez; taban varyantın işlemleri için `corrective_or_vshape` kriteri N ∈ {config, 5, 15, 20} ile yeniden hesaplanır (kazanan sayısı, win%, ortalama/medyan POI puanı, puanı değişen işlem). N için "POI'ye dokunuştan CHoCH'a mum sayısı" sinyal anında `OrderIntent.choch_gap`'e yazılır (kurulum kapandıktan sonra yeniden kullanıldığı için sonradan okunamaz).
+- Tablo sütunları: işlem, strike%, ort R net, toplam R net (+brüt), getiri%, maxDD%, en uzun kayıp serisi, komisyon/risk% (Σkomisyon/Σhedef risk), ≤5 dk stop (kaybedenlerden dolumdan ≤5 dk'da kapananlar), giriş+stop aynı mum. Ayrıca varyant × trend sınıfı kırılımı ve huni toplamları. Çıktı: `compare.txt`, `compare.csv`, `<ad>/` altında her varyantın tam raporu.
+- Paralel: varyant başına bir süreç (spawn), `--jobs 0` = min(CPU, varyant sayısı). Her süreç veriyi önbellekten kendisi okur; bellek ~ varyant sayısı × tek koşu.
+- Ay bazında huni artık her raporda (`*_report.txt` "Ay bazında huni"): dolum=0 olan ay için tıkandığı aşama yazılır.

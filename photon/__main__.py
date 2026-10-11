@@ -57,6 +57,16 @@ def main(argv: list[str] | None = None) -> int:
     bt.add_argument("--end", type=date.fromisoformat, required=True, help="dahil")
     bt.add_argument("--balance", help="başlangıç bakiyesi (verilmezse config backtest.initial_balance)")
     bt.add_argument("--out", default="backtest_out")
+    bc = sub.add_parser("backtest-compare", help="varyant karşılaştırma: variants.yaml override'ları, aynı veri, tek tablo")
+    bc.add_argument("--config", default=str(DEFAULT_PATH))
+    bc.add_argument("--source", choices=["HISTDATA", "OANDA_PRACTICE", "DUKASCOPY"])
+    bc.add_argument("--pair")
+    bc.add_argument("--start", type=date.fromisoformat, required=True)
+    bc.add_argument("--end", type=date.fromisoformat, required=True, help="dahil")
+    bc.add_argument("--variants", required=True, help="variants.yaml")
+    bc.add_argument("--balance", help="başlangıç bakiyesi (verilmezse config backtest.initial_balance)")
+    bc.add_argument("--out", default="backtest_compare")
+    bc.add_argument("--jobs", type=int, default=0, help="paralel süreç sayısı (0 = min(CPU, varyant sayısı); 1 = sırayla)")
     args = ap.parse_args(argv)
 
     cfg = load_config(args.config)
@@ -77,6 +87,8 @@ def main(argv: list[str] | None = None) -> int:
         return _zones_cmd(cfg, args)
     if args.cmd == "backtest":
         return _backtest_cmd(cfg, args)
+    if args.cmd == "backtest-compare":
+        return _compare_cmd(cfg, args)
     reports = validate_all(cfg)
     for name, r in reports.items():
         print(f"{'READY  ' if r.ok else 'BLOCKED'} {name}")
@@ -224,6 +236,43 @@ def _backtest_cmd(cfg, args) -> int:
     print(format_report(res))
     paths = write_outputs(res, Path(args.out))
     print("\nDosyalar: " + ", ".join(str(p) for p in paths.values()))
+    return 0
+
+
+def _compare_cmd(cfg, args) -> int:
+    import os
+    from datetime import timedelta
+    from decimal import Decimal
+    from pathlib import Path
+
+    from .backtest.compare import apply_overrides, format_compare, load_variants, run_compare, write_compare
+    from .data import tools
+
+    cfg.require("backtest", "strategy", "management", "data_boundaries", "structure_warmup")
+    spec = load_variants(args.variants)
+    for v in spec.variants:                                   # hatalı override'ları çalıştırmadan önce yakala
+        apply_overrides(cfg, v.overrides).require("backtest", "strategy", "management")
+    source = args.source or cfg.get("data.backtest.primary")
+    pair = args.pair or cfg.pairs[0]
+    start, end = tools.day_range(args.start, args.end)
+    warm = max(cfg.get(f"warmup_period.{tf}") for tf in ("D1", "H4", "M15", "M1"))
+    m1 = tools.load_m1(cfg, source, pair, start - timedelta(days=warm), start + timedelta(minutes=1))   # yalnız veri/warm-up kontrolü
+    if not m1:
+        print("önbellekte M1 yok; önce `photon import-histdata` çalıştırın", file=sys.stderr)
+        return 2
+    have = (start - m1[0].open_time).days
+    if have < warm:
+        print(f"UYARI warm-up: {warm} gün istendi, veri {m1[0].open_time:%Y-%m-%d} tarihinde başlıyor ({max(have, 0)} gün)", file=sys.stderr)
+    del m1
+    bal = Decimal(args.balance) if args.balance else Decimal(str(cfg.get("backtest.initial_balance")))
+    jobs = args.jobs or min(os.cpu_count() or 1, len(spec.variants))
+    print(f"{len(spec.variants)} varyant, {jobs} süreç ...")
+    out = Path(args.out)
+    results = run_compare(args.config, spec, source, pair, start, end, bal, out, jobs)
+    text = format_compare(results, spec, start, end, bal, source, pair)
+    print("\n" + text)
+    paths = write_compare(results, spec, out, text)
+    print("\nDosyalar: " + ", ".join(str(p) for p in paths.values()) + f"; varyant çıktıları: {out}/<ad>/")
     return 0
 
 

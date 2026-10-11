@@ -49,10 +49,13 @@ class EntryParams:
     eq_tol: Decimal                       # eşit tepe/dip toleransı (fiyat)
     pipette: Decimal
     spread: Decimal                       # sabit spread (fiyat): ask = bid + spread
+    entry_zone_choice: str = "FLIP_FIRST"  # FLIP_FIRST (varsayılan; EN-R008, config'te anahtar yok) | EXTREME_ALWAYS (varyant testi: EN-R008 C-11 seçeneği — flip yerine hep V tepki kutusu)
 
     def __post_init__(self) -> None:
         if self.entry_type == "DOUBLE_CONFIRMATION":
             raise NotImplementedError("DOUBLE_CONFIRMATION kodlanmadı: M1 swing BOS'u gerekir, M1 swing eşiği henüz yok (Q-E4)")
+        if self.entry_zone_choice not in ("FLIP_FIRST", "EXTREME_ALWAYS"):
+            raise ValueError(f"bilinmeyen entry_zone_choice {self.entry_zone_choice!r}")
         if self.entry_type not in ("CONFIRMATION", "RISK"):
             raise ValueError(f"bilinmeyen entry_type {self.entry_type!r}")
 
@@ -64,7 +67,7 @@ class EntryParams:
                    cfg.get("counter_htf_require_double_bos"), cfg.get("require_refined_ltf_zone_in_htf_poi"),
                    cfg.get("duplicate_signal_policy"), cfg.get("opposite_signal_policy"),
                    cfg.get("v_shape_metric.max_candles"), Decimal(str(cfg.get("eqh_tolerance.pips"))) * pip, pip / 10,
-                   Decimal(str(cfg.get("costs.spread_pips"))) * pip)
+                   Decimal(str(cfg.get("costs.spread_pips"))) * pip, cfg.get("entry_zone_choice") or "FLIP_FIRST")
 
 
 @dataclass
@@ -114,6 +117,7 @@ class OrderIntent:
     shares_event_with: tuple[str, ...]
     news: str
     rules: tuple[str, ...]
+    choch_gap: Optional[int] = None                  # sinyal anında: POI'ye dokunuştan M1 CHoCH'a mum sayısı (V-shape N karşılaştırması için; kurulum sonradan yeniden kullanılır)
 
 
 @dataclass(frozen=True)
@@ -388,7 +392,8 @@ class EntryModel:
     def _enter(self, s: Setup, view: MarketView, c: Candle, choch: StructureEvent) -> list[SignalEvent]:
         t = view.now
         ze1 = view.m1_zones
-        zone, kind = choose_entry_zone(choch, ze1, self.p.decisional_flip_requires_sweep)
+        zone, kind = ((None, "NONE") if self.p.entry_zone_choice == "EXTREME_ALWAYS"
+                      else choose_entry_zone(choch, ze1, self.p.decisional_flip_requires_sweep))
         if zone is None:                                     # Q-Z11: flip yoksa V tepki kutusu (zon algılamasından bağımsız)
             zone = reaction_box(view.m1, s.visit_start, choch.break_index, s.direction)
             kind = "EXTREME" if zone is not None else "NONE"
@@ -464,7 +469,8 @@ class EntryModel:
                              self.clock.window_label(t), tclass.value if tclass else "UNKNOWN", res.score, res.max_score,
                              res.breakdown(), res.shares_event_with, note,
                              ("EN-R001", "EN-R006", "SD-R005", "PD-R003", "SL-R001", "SL-R003", "FM-02", "RK-R001",
-                              "MG-R001", "MG-R002", "MG-R005"))
+                              "MG-R001", "MG-R002", "MG-R005"),
+                             (s.choch.break_index - s.visit_start) if (s.choch is not None and s.visit_start is not None) else None)
         s.intent = intent
         s.log(t, "SIGNAL", f"{kind} entry={plan.entry} stop={plan.stop}")
         s.to(State.ORDER_PENDING, t, f"SIGNAL:{kind}")

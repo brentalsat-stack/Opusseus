@@ -161,6 +161,68 @@ def funnel(res: BacktestResult) -> list[tuple[str, dict]]:
     return rows
 
 
+def monthly_funnel(res: BacktestResult) -> list[dict]:
+    """Ay bazında huni (UTC ay). Sıfır işlemli ayların nedeni için: hangi aşamada tıkandığı `neden` alanında."""
+    m: dict[str, Counter] = defaultdict(Counter)
+    for s in res.setups:
+        if not s.poi.warmup:
+            m[f"{s.poi.created_time:%Y-%m}"]["poi"] += 1
+        for t, stage, _, _ in s.trace:
+            k = f"{t:%Y-%m}"
+            if stage.startswith("PERMISSION_WAIT"):
+                m[k]["izin_bekleme"] += 1
+            elif stage.startswith("GATE_FAIL:"):
+                g = stage.split(":", 1)[1]
+                m[k]["gate_" + (g if g in ("range_filter", "liquidation", "session") else "diger")] += 1
+            else:
+                m[k][stage] += 1
+    for e in res.events:
+        if e.kind == "CANCELLED":
+            m[f"{e.time:%Y-%m}"]["iptal"] += 1
+    for t in res.trades + res.open_trades:
+        m[f"{t.fill_time:%Y-%m}"]["dolum"] += 1
+    if res.start and res.end:                                            # boş ayları da göster
+        y, mo = res.start.year, res.start.month
+        while (y, mo) <= ((res.end - timedelta(seconds=1)).year, (res.end - timedelta(seconds=1)).month):
+            m.setdefault(f"{y}-{mo:02d}", Counter())
+            y, mo = (y + 1, 1) if mo == 12 else (y, mo + 1)
+    rows = []
+    for k in sorted(m):
+        c = m[k]
+        if c["MITIGATED"] == 0:
+            why = "mitigasyon yok (izlenen POI'ye dokunuş olmadı / seans-kilit)"
+        elif c["PERMISSION_OK"] == 0:
+            why = "izin (EN-R006/Q-P1) geçmedi"
+        elif c["CHOCH"] == 0:
+            why = "mitigasyon sonrası M1 CHoCH yok"
+        elif c["SIGNAL"] == 0:
+            why = "tüm girişler kapılarda elendi"
+        elif c["dolum"] == 0:
+            why = "sinyal var, dolum yok (iptal/dolmadı)"
+        else:
+            why = ""
+        rows.append({"ay": k, "poi": c["poi"], "mitigasyon": c["MITIGATED"], "izin_bekleme": c["izin_bekleme"],
+                     "izin_ok": c["PERMISSION_OK"], "choch": c["CHOCH"], "giris_zonu": c["ENTRY_ZONE_OK"],
+                     "range_filter": c["gate_range_filter"], "liquidation": c["gate_liquidation"], "session": c["gate_session"],
+                     "diger_kapi": c["gate_diger"], "sinyal": c["SIGNAL"], "iptal": c["iptal"], "dolum": c["dolum"], "neden": why})
+    return rows
+
+
+def format_monthly_funnel(res: BacktestResult) -> str:
+    cols = [("ay", 8), ("poi", 5), ("mitigasyon", 11), ("izin_bekleme", 13), ("izin_ok", 8), ("choch", 6), ("giris_zonu", 11),
+            ("range_filter", 13), ("liquidation", 12), ("session", 8), ("diger_kapi", 11), ("sinyal", 7), ("iptal", 6), ("dolum", 6)]
+    L = ["  " + "".join(f"{n:>{w}}" for n, w in cols) + "  neden (dolum=0 ise)"]
+    for r in monthly_funnel(res):
+        L.append("  " + "".join(f"{r[n]:>{w}}" for n, w in cols) + (f"  {r['neden']}" if r["dolum"] == 0 else ""))
+    return "\n".join(L)
+
+
+def stop_quick_ratio(trades: Sequence[Trade], minutes: int = 5) -> tuple[int, int]:
+    """Kaybeden işlemlerden dolumdan ≤ `minutes` dk içinde kapananlar: (sayı, kaybeden sayısı). Süre mum açılışlarından ölçülür."""
+    losers = [t for t in trades if not t.win and t.close_time is not None]
+    return sum(1 for t in losers if (t.close_time - t.fill_time) <= timedelta(minutes=minutes)), len(losers)
+
+
 def format_funnel(res: BacktestResult) -> str:
     L = [f"  {'aşama':<78}" + "".join(f"{c:>13}" for c in CLASSES + ("TOPLAM",))]
     for label, d in funnel(res):
@@ -232,6 +294,9 @@ def format_report(res: BacktestResult, tz: ZoneInfo = ISTANBUL) -> str:
     a("")
     a("── Kurulum hunisi (olay sayıları; ayrıntı ve örnekler: *_diag.txt) ──")
     a(format_funnel(res))
+    a("")
+    a("── Ay bazında huni (UTC ay; olay sayıları) ──")
+    a(format_monthly_funnel(res))
     a("")
     a("── Sinyal / emir akışı ──")
     kinds = Counter(e.kind for e in res.events)
