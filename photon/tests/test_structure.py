@@ -449,7 +449,7 @@ def test_mirror_symmetry(seed):
     for c in rest:
         a.update(c)
         b.update(mirror(c, k))
-    flip = {Trend.BULL: Trend.BEAR, Trend.BEAR: Trend.BULL}
+    flip = {Trend.BULL: Trend.BEAR, Trend.BEAR: Trend.BULL, Trend.UNDEFINED: Trend.UNDEFINED}
     ea = [(x.type, x.dir, x.level, x.break_index, x.note) for x in a.events]
     eb = [(x.type, flip[x.dir], k - x.level, x.break_index, x.note) for x in b.events]
     assert ea == eb
@@ -526,7 +526,7 @@ def test_diagnostics_summary_and_csv(tmp_path):
     e = ie([(5, 0), (20, 8), (30, 18), (28, 12), (26, 9), (24, 6)])
     e.update(bar(6, 32, 3, c=20))
     txt = summarize_diagnostics(e.diagnostics)
-    assert "toplam 1" in txt and "a=1" in txt and "Q-S03a" in txt
+    assert "tespit 1" in txt and "a=1" in txt and "Q-S03a" in txt and "çözülen=0" in txt
     assert write_diagnostics_csv(e.diagnostics, tmp_path / "d.csv") == 1
 
 
@@ -535,3 +535,117 @@ def test_event_origin_and_level_indices():
     (bos,) = types(e.update(bar(6, 45, 30, c=42)), EventType.BOS)
     assert bos.level_index == 2 and bos.origin_index == 4        # kırılan high idx2, hareketin başladığı dip idx4 (kutu min)
     assert [p.index for p in e.swing_log] == [0, 4]               # seed strong + yeni strong
+
+
+# ---------------- Q-S09: kırılış mumunun ucu aday (1 mum gecikme) ----------------
+Q03A_ROWS = [(5, 0), (20, 8), (30, 18), (28, 12), (26, 9), (24, 6)]
+
+
+def test_q_s09_break_candles_own_low_becomes_reference_when_next_candle_holds():
+    e = ie(Q03A_ROWS)
+    e.update(bar(6, 32, 3, c=20))                                # kırılış mumu: aday yok (Q-S03a), referans henüz değişmedi
+    assert e.iref == (px(0), 0) and e._defer == 6
+    evs = e.update(bar(7, 31, 4, c=20))                          # low 4 ≥ 3: kırılış mumunun dibi kırılmadı → referans
+    assert [x.type for x in evs] == [EventType.INTERNAL_REF] and evs[0].note == "Q-S09" and evs[0].level == px(3)
+    assert e.iref == (px(3), 6) and [d.kind for d in e.diagnostics] == ["Q-S03a", "Q-S09-ok"]
+
+
+def test_q_s09_candidate_is_dropped_if_next_candle_undercuts_it():
+    e = ie(Q03A_ROWS)
+    e.update(bar(6, 32, 3, c=20))
+    assert e.update(bar(7, 31, 2, c=20)) == []                   # 3'ü 1 pip kırdı
+    assert e.iref == (px(0), 0) and [d.kind for d in e.diagnostics] == ["Q-S03a", "Q-S09-fail"]
+
+
+def test_q_s09_equal_low_counts_as_not_broken_and_pipette_breaks():
+    e = ie(Q03A_ROWS)
+    e.update(bar(6, 32, 3, c=20))
+    e.update(bar(7, 31, 3, c=20))                                 # eşit → kırılım değil
+    assert e.iref == (px(3), 6)
+    e2 = ie(Q03A_ROWS)
+    e2.update(bar(6, 32, 3, c=20))
+    e2.update(bar(7, 31, "2.9", c=20))                            # 0.1 pip altı → kırdı
+    assert e2.iref == (px(0), 0)
+
+
+def test_q_s09_after_choch_no_candidate_high_case_b():
+    e = ie([(5, 0), (12, 4), (14, 6), (16, 8)])
+    (ch,) = types(e.update(bar(4, 18, -1, c=10)), EventType.CHOCH)
+    assert e.state().internal_high is None and e._defer == 4
+    evs = e.update(bar(5, 18, 3, c=10))                           # high 18 ≤ 18: kırılış mumunun high'ı referans (bearish iç yapıda internal high)
+    assert evs and evs[0].level == px(18) and evs[0].dir is Trend.BEAR and evs[0].note == "Q-S09"
+    assert e.state().internal_high.price == px(18) and e.state().internal_high.index == 4
+
+
+def test_q_s09_off_reproduces_old_behaviour_and_counts_before_after():
+    from collections import Counter
+
+    def run(seed, flag):
+        e = StructureEngine(Timeframe.H4, params(min_pips=15), defer_own_extreme=flag)
+        e.start(bars([(10, 0, 5), (20, 8, 15)]), Seed(Trend.BULL, 1, 0, False, Trend.BULL, 0))
+        for i, (h, l, c) in enumerate(random_series(1500, random.Random(seed))):
+            e.update(bar(i + 2, h, l, c))
+        return Counter(d.kind for d in e.diagnostics)
+    on, off = Counter(), Counter()
+    for seed in range(1, 13):
+        on.update(run(seed, True))
+        off.update(run(seed, False))
+    detected_on, detected_off = on["Q-S03a"] + on["Q-S03b"], off["Q-S03a"] + off["Q-S03b"]
+    assert detected_off > 0 and off["Q-S09-ok"] == 0 and off["Q-S09-fail"] == 0      # eski davranış: tespit edilenlerin HEPSİ çözülemedi
+    assert on["Q-S09-ok"] > 0 and on["Q-S09-ok"] + on["Q-S09-fail"] >= detected_on - 12   # her tespit bir sonraki mumda sonuçlanır (seri sonu hariç)
+    assert on["Q-S09-fail"] < detected_off                                              # çözülemeyen sayısı belirgin azalır
+
+
+# ---------------- internal_only motor (M1: swing eşiği olmadan iç referanslar) ----------------
+def internal_engine(**kw):
+    e = StructureEngine(Timeframe.M1, StructureParams.internal_only_params(PIP), **kw)
+    return e
+
+
+def test_internal_only_params_need_no_swing_threshold_and_reject_seed():
+    p = StructureParams.internal_only_params(PIP)
+    assert p.internal_only and p.pip_size == PIP
+    e = internal_engine()
+    with pytest.raises(RuntimeError):
+        e.start([bar(0, 1, 0, tf=Timeframe.M1)] * 1, ISEED)
+
+
+def test_internal_only_bootstraps_from_first_wick_break_and_then_gives_choch():
+    e = internal_engine()
+    rows = [(10, 5), (12, 6), (11, 6.5), (13, 7)]               # pend high 12 (idx1) kırılır → bullish, referans en yakın aday low
+    evs = []
+    for i, r in enumerate(rows):
+        evs += e.update(bar(i, *r, tf=Timeframe.M1))
+    assert [x.type for x in evs] == [EventType.INTERNAL_REF] and evs[0].note == "BOOTSTRAP" and evs[0].level == px("6.5")
+    st = e.state()
+    assert st.internal_trend is Trend.BULL and st.swing_trend is Trend.UNDEFINED and st.internal_low.price == px("6.5")
+    assert e.iref_log == [(2, px("6.5"), 1, 3)] and e.ready
+    (ch,) = types(e.update(bar(4, 13.5, 6, tf=Timeframe.M1)), EventType.CHOCH)
+    assert ch.dir is Trend.BEAR and ch.level == px("6.5") and e.state().internal_trend is Trend.BEAR
+
+
+def test_internal_only_no_state_before_first_break_and_outside_bar_bootstrap_unresolved():
+    e = internal_engine()
+    for i, r in enumerate([(10, 5), (12, 6), (11, 6.5)]):
+        assert e.update(bar(i, *r, tf=Timeframe.M1)) == []
+    assert e.state().internal_trend is Trend.UNDEFINED and not e.ready
+    evs = e.update(bar(3, 13, 4, tf=Timeframe.M1))              # hem 12'yi hem 5'i kırdı
+    assert [x.type for x in evs] == [EventType.OUTSIDE_BAR] and not evs[0].signal_capable
+    assert e.state().internal_trend is Trend.UNDEFINED
+
+
+@pytest.mark.parametrize("seed", [31, 32, 33])
+def test_internal_only_mirror_symmetry(seed):
+    rnd = random.Random(seed)
+    rows = random_series(400, rnd)
+    cs = [bar(i, h, l, c, tf=Timeframe.M1) for i, (h, l, c) in enumerate(rows)]
+    k = D("2.2000")
+    a, b = internal_engine(), internal_engine()
+    for c in cs:
+        a.update(c)
+        b.update(mirror(c, k))
+    flip = {Trend.BULL: Trend.BEAR, Trend.BEAR: Trend.BULL, Trend.UNDEFINED: Trend.UNDEFINED}
+    ea = [(x.type, x.dir, x.level, x.break_index, x.note) for x in a.events]
+    eb = [(x.type, flip[x.dir], k - x.level, x.break_index, x.note) for x in b.events]
+    assert ea == eb and ea
+    assert [(i, p, e_, t) for i, p, e_, t in a.iref_log] == [(i, k - p, -e_, t) for i, p, e_, t in b.iref_log]

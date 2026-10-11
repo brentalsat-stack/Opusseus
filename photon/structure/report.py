@@ -132,9 +132,13 @@ def write_diagnostics_csv(diags: Iterable[Diagnostic], path: str | Path) -> int:
 
 
 def summarize_diagnostics(diags: Sequence[Diagnostic], examples: int = 3) -> str:
+    """Q-S03 (önce) ve Q-S09 (sonra) sayıları: önce = tespit edilen hepsi çözülemezdi; sonra = Q-S09-fail."""
     from collections import Counter
     c = Counter(d.kind for d in diags)
-    lines = [f"Q-S03 tanılama: toplam {len(diags)} (a={c.get('Q-S03a', 0)}: aday internal low yok; b={c.get('Q-S03b', 0)}: CHoCH sonrası referans yok)"]
-    for d in diags[:examples]:
+    det = c.get("Q-S03a", 0) + c.get("Q-S03b", 0)
+    lines = [f"Q-S03 tanılama: tespit {det} (a={c.get('Q-S03a', 0)}: aday internal low yok; b={c.get('Q-S03b', 0)}: CHoCH sonrası referans yok)",
+             f"  Q-S09 (kırılış mumunun ucu, 1 mum gecikme): çözülen={c.get('Q-S09-ok', 0)}, çözülemeyen={c.get('Q-S09-fail', 0)} "
+             f"(önce çözülemeyen = {det})"]
+    for d in [x for x in diags if x.kind in ("Q-S03a", "Q-S03b")][:examples]:
         lines.append(f"  [{d.kind}] {d.time:%Y-%m-%d %H:%M} UTC — {d.detail}")
     return "\n".join(lines)

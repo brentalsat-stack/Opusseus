@@ -34,11 +34,13 @@ class _Run:
 
 class StructureEngine:
     def __init__(self, tf: Timeframe, params: StructureParams, resolver=None,
-                 live_from: Optional[datetime] = None):
+                 live_from: Optional[datetime] = None, defer_own_extreme: bool = True):
         """`resolver`: outside bar sırası için alt TF çözücüsü (`SubTfResolver`); yoksa OUTSIDE_BAR işaretlenir (Q-S04).
         `live_from`: bu zamandan önceki olaylar warm-up sayılır (sinyal üretmez; Q-S01)."""
         self.tf, self.p, self.resolver, self.live_from = tf, params, resolver, live_from
-        self.auto = False               # otomatik warm-up (Q-S01) — cold start tanımsız, ilk BOS'a kadar UNDEFINED
+        self.internal_only = params.internal_only
+        self.defer_own_extreme = defer_own_extreme   # Q-S09 (kullanıcı kararı): kırılış mumunun ucu aday olabilir (1 mum gecikme)
+        self.auto = self.internal_only  # otomatik warm-up (Q-S01) — cold start tanımsız, ilk BOS'a kadar UNDEFINED
         self._bh: Optional[_Run] = None  # bootstrap: en yüksek tepe
         self._bl: Optional[_Run] = None  # bootstrap: en düşük dip (ham fiyat)
         self._bh_min: Optional[Decimal] = None
@@ -59,6 +61,14 @@ class StructureEngine:
         self.e = 0
         self.iref: Optional[tuple[Decimal, int]] = None
         self.ipend: Optional[tuple[Decimal, int]] = None
+        self._defer: Optional[int] = None                         # Q-S09: aday ucu kırılış mumu olan mum indeksi
+        self._ibp: dict[int, tuple[Decimal, int]] = {}            # internal-only bootstrap pend'leri {+1: tepe, -1: dip}
+        self.iref_log: list[tuple[int, Decimal, int, int]] = []   # (ref mum idx, ham fiyat, yön e, belirlendiği mum)
+
+    def _set_iref(self, ref: Optional[tuple[Decimal, int]], e: int, at: int) -> None:
+        self.iref = ref
+        if ref is not None:
+            self.iref_log.append((ref[1], ref[0], e, at))
 
     # ---- dönüştürülmüş okumalar (s>0: olduğu gibi, s<0: aynalı) ----
     def _hi(self, i: int, s: int) -> Decimal:
@@ -88,6 +98,8 @@ class StructureEngine:
     def start(self, history: list[Candle], seed: Seed) -> None:
         """Cold start yerine açık başlangıç (U-15). `history` sessizce yüklenir; seed'den sonraki
         mumlar normal kurallarla işlenir ve olay üretirse seed tutarsızdır → ValueError."""
+        if self.internal_only:
+            raise RuntimeError("internal_only motor Seed ile başlatılmaz (start_auto)")
         if self.T:
             raise RuntimeError("motor zaten başlatıldı")
         for c in history:
@@ -109,7 +121,7 @@ class StructureEngine:
         self.run = _Run(s * self._hi(run_idx, s), run_idx, seed.swing_high_confirmed)
         self._min_after = None
         self.e = 1 if seed.internal_trend is Trend.BULL else -1
-        self.iref = (self.e * self._lo(seed.internal_ref_index, self.e), seed.internal_ref_index)
+        self._set_iref((self.e * self._lo(seed.internal_ref_index, self.e), seed.internal_ref_index), self.e, seed.internal_ref_index)
         self.ipend = None
         self._log_strong(s)
         for t in range(max(run_idx, seed.internal_ref_index) + 1, n):
@@ -126,12 +138,15 @@ class StructureEngine:
     @property
     def ready(self) -> bool:
         """Trend tanımlı VE warm-up bitti → sinyal üretilebilir."""
-        return self.s != 0 and (self.live_from is None or (bool(self.T) and self.T[-1] >= self.live_from))
+        defined = self.e != 0 if self.internal_only else self.s != 0
+        return defined and (self.live_from is None or (bool(self.T) and self.T[-1] >= self.live_from))
 
     # ---- ana giriş ----
     def update(self, c: Candle) -> list[StructureEvent]:
         i = self._ingest(c)
-        if self.s == 0:
+        if self.internal_only:
+            ev = self._internal_bootstrap(i) if self.e == 0 else self._step_internal(i)
+        elif self.s == 0:
             ev = self._bootstrap(i) if self.auto else []   # Seed/auto yok → olay yok (U-15)
         else:
             ev = self._step_swing(i) + self._step_internal(i)
@@ -155,7 +170,7 @@ class StructureEngine:
                 self.iref = None
                 for i in range(t - 1, run.index - 1, -1):
                     if self._lo(i, s) - self._lo(i + 1, s) < pip:
-                        self.iref = (s * self._lo(i, s), i)
+                        self._set_iref((s * self._lo(i, s), i), s, t)
                         break
                 self._log_strong(s)
                 return [self._mk_event(EventType.BOS, self._trend(s), run.price, t, True, old, "BOOTSTRAP", "MS-R006/R007",
@@ -280,7 +295,11 @@ class StructureEngine:
                 f"({e * self._hi(t, e)}) önceki mumunkini ({e * self._hi(t - 1, e)}) aştı ve aralıkta her mum yeni {adv} yaptı"))
             log.debug("%s idx=%d Q-S03b", self.tf.value, t)
         origin = self.ipend[1] if self.ipend is not None else (new_ref[1] if new_ref is not None else t - 1)
-        self.e, self.iref, self.ipend = -e, new_ref, None
+        self.e, self.iref, self.ipend = -e, None, None
+        if new_ref is not None:
+            self._set_iref(new_ref, self.e, t)
+        elif self.defer_own_extreme:
+            self._defer = t                      # Q-S09: kırılış mumunun kendi ucu, sonraki mum kıramazsa referans olur
         return [self._mk_event(EventType.CHOCH, self._trend(self.e), ref_price, t, False, None, note, "MS-R005",
                                level_index=ref_idx, origin_index=origin)]
 
@@ -302,11 +321,61 @@ class StructureEngine:
                 f"aday internal {back} yok: pullback boyunca her mum yeni {back} yapmış ve kırılış mumunun {back}'ı "
                 f"({e * self._lo(t, e)}) önceki mumunkini ({e * self._lo(t - 1, e)}) geçti → referans DEĞİŞMEDİ"))
             log.debug("%s idx=%d Q-S03a", self.tf.value, t)
+            if self.defer_own_extreme:
+                self._defer = t                  # Q-S09
             return []
-        self.iref = found
+        self._set_iref(found, e, t)
         return [self._mk_event(EventType.INTERNAL_REF, self._trend(e), found[0], t, False, None, rule="MS-R003")]
 
+    def _resolve_deferred(self, t: int) -> list[StructureEvent]:
+        """Q-S09 (kullanıcı kararı): önceki mumun (kırılış mumu d) KENDİ ucu, t mumu onu ≥1 pipette kıramazsa referans olur.
+        Bir mum gecikmeli; geleceğe bakış yok. Kıramazsa referans belirlenemedi (Q-S09-fail diagnostiği)."""
+        d, self._defer = self._defer, None
+        if d is None or d != t - 1:
+            return []
+        e, pip = self.e, self.p.pipette
+        side = "low" if e > 0 else "high"
+        if self._lo(d, e) - self._lo(t, e) < pip:
+            self._set_iref((e * self._lo(d, e), d), e, t)
+            self.diagnostics.append(Diagnostic("Q-S09-ok", t, self.T[t],
+                                               f"kırılış mumunun ({self.T[d]:%Y-%m-%d %H:%M}) {side}'ı referans oldu ({e * self._lo(d, e)})"))
+            return [self._mk_event(EventType.INTERNAL_REF, self._trend(e), e * self._lo(d, e), t, False, None, "Q-S09", "MS-R003")]
+        self.diagnostics.append(Diagnostic("Q-S09-fail", t, self.T[t],
+                                           f"kırılış mumunun {side}'ı sonraki mum tarafından kırıldı → referans belirlenemedi"))
+        return []
+
     def _step_internal(self, t: int) -> list[StructureEvent]:
+        return self._resolve_deferred(t) + self._step_internal_core(t)
+
+    def _internal_bootstrap(self, t: int) -> list[StructureEvent]:
+        """internal_only motor (M1): ilk iç kırılıma kadar durum yok. MS-R002 aday uçları iki yönde izlenir; ilk wick kırılımı
+        yönü belirler, referans = kırılım öncesi en yakın aday (MS-R003). Kaynakta tanımsız cold start'ın iç-yapı karşılığı (Q-S10)."""
+        pip = self.p.pipette
+        brk = {s: p for s, p in self._ibp.items() if self._hi(t, s) - s * p[0] >= pip}
+        if len(brk) == 2:      # aynı mumda iki yön: sıra bilinmiyor → durum kurma
+            self._ibp = {}
+            return [self._mk_event(EventType.OUTSIDE_BAR, Trend.UNDEFINED, self.C[t], t, False, None,
+                                   "UNRESOLVED_BOOTSTRAP", "MS-R003")]
+        if len(brk) == 1:
+            (s, pend), = brk.items()
+            found = None
+            for i in range(t - 1, pend[1] - 1, -1):
+                if self._lo(i, s) - self._lo(i + 1, s) < pip:
+                    found = (s * self._lo(i, s), i)
+                    break
+            self.e, self.ipend, self._ibp = s, None, {}
+            if found is not None:
+                self._set_iref(found, s, t)
+                return [self._mk_event(EventType.INTERNAL_REF, self._trend(s), found[0], t, False, None, "BOOTSTRAP", "MS-R003")]
+            if self.defer_own_extreme:
+                self._defer = t
+            return []
+        for s in (1, -1):
+            if s not in self._ibp and t >= 1 and self._hi(t, s) - self._hi(t - 1, s) < pip:
+                self._ibp[s] = (s * self._hi(t - 1, s), t - 1)
+        return []
+
+    def _step_internal_core(self, t: int) -> list[StructureEvent]:
         e, pip = self.e, self.p.pipette
         hi, lo = self._hi(t, e), self._lo(t, e)
         broke_ref = self.iref is not None and e * self.iref[0] - lo >= pip
