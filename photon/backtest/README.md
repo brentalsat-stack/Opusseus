@@ -24,7 +24,16 @@ Strike rate, ortalama R, expectancy (FM-04), max drawdown (FM-10; bakiye ve R), 
 VALID/INVALID × WIN/LOSS günlüğü; POI kriterlerinin isabete katkısı (var/yok win oranı, Δpp); trend sınıfı kırılımı; çıkış dolumu dağılımı;
 sinyal/ret/iptal sayıları; dolum modeli sayaçları; **Q-M5** (M15/ilk hedefi 4R'den yakın işlem sayısı + listesi, yalnız rapor); **Q-L3** sınır sayaçları.
 
-Çıktılar (`--out`): `<PAIR>_report.txt`, `_trades.csv`, `_fills.csv`, `_journal.csv`, `_signals.csv`, `_criteria.csv`.
+Çıktılar (`--out`): `<PAIR>_report.txt`, `_trades.csv`, `_fills.csv`, `_journal.csv`, `_signals.csv`, `_criteria.csv`,
+`_diag.txt` (teşhis örnekleri), `_setups.csv` (her kurulumun aşama izi).
+
+**Kurulum hunisi** (raporda): POI tespit → mitigasyon → izin → M1 CHoCH → giriş zonu → kapılar → sinyal → dolum; olay sayıları,
+PRO / MIXED / COUNTER_HTF kırılımıyla. Kurulum izi (`Setup.trace`) yalnızca kayıt tutar, karar vermez. `_diag.txt`: `range_filter`
+elemelerinde M15 range low/high (+zaman), zon EQ ve yüzde; `NO_ENTRY_ZONE`'da CHoCH bacak uzunluğu (`leg_len`) ve penceredeki zonlar.
+
+**Zaman damgaları:** `signal_time` = sinyali üreten M1 mumunun KAPANIŞI (mum açılışı + 1 dk). Dolum en erken bir sonraki mumdadır ve
+`fill_candle_open` = o mumun AÇILIŞIDIR; bu yüzden `signal_time == fill_candle_open` (örn. 07:42 = 07:42) lookahead değildir: CHoCH mumu
+07:41'de açılıp 07:42'de kapanır, emir 07:42 mumunda dolar (`fill_after_signal_min` ≥ 0; test: `test_signal_candle_itself_never_fills_its_own_order`).
 
 ## Kural → kod → test
 | Konu | Kod | Test |

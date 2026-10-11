@@ -201,6 +201,8 @@ def test_end_to_end_is_deterministic_and_consistent(synth_result):
     assert bal == res.final_balance
     assert [b for _, b in res.equity][-1] == res.final_balance
     assert res.trades[0].fill_time >= res.start                  # warm-up'ta işlem yok
+    for t in res.trades:                                         # LOOKAHEAD yok: sinyal = M1 mumunun KAPANIŞI; dolum en erken sonraki mumun açılışı
+        assert t.fill_time >= t.intent.time and t.signal_time == t.intent.time
 
 
 def test_metrics_and_journal_from_trades(synth_result):
@@ -270,3 +272,39 @@ def test_backtest_cli_without_data(tmp_path):
     cfgp = tmp_path / "config.yaml"
     cfgp.write_text(text, encoding="utf-8")
     assert main(["backtest", "--config", str(cfgp), "--start", "2021-09-01", "--end", "2021-09-02", "--out", str(tmp_path / "o")]) == 2
+
+
+def test_signal_candle_itself_never_fills_its_own_order(tmp_path):
+    """Sinyali üreten mum (kapanışı = sinyal zamanı) emri dolduramaz: bekleyen emir yalnızca on_m1 döndükten SONRA kaydedilir."""
+    cfg = cfg_with_policies(tmp_path)
+    m1 = synth(datetime(2021, 8, 2, tzinfo=UTC), 35 * 1440, seed=11, amp=18)
+    e = BacktestEngine(cfg, "EURUSD", datetime(2021, 8, 30, tzinfo=UTC), datetime(2021, 9, 6, tzinfo=UTC), D(10000))
+    seen = []
+    orig = e._pre_step
+
+    def spy(c):
+        seen.append((c.open_time, set(e.pending)))               # bu mum işlenirken bekleyen emirler
+        orig(c)
+    for q in m1:
+        evs = e.runner.on_m1(q, pre_step=spy)
+        for ev in evs:
+            if ev.kind == "SIGNAL":
+                assert ev.setup.id not in seen[-1][1]              # sinyal mumunun kendi pre_step'inde emir henüz yoktu
+                assert ev.time == q.open_time + q.tf.delta         # sinyal zamanı = mum kapanışı
+                e.pending[ev.setup.id] = ev.setup
+            elif ev.kind == "CANCELLED":
+                e.pending.pop(ev.setup.id, None)
+
+
+def test_funnel_counts_are_consistent_and_split_by_trend_class(synth_result):
+    from photon.backtest.report import diagnostics_text, format_funnel, funnel
+    res, *_ = synth_result
+    rows = dict(funnel(res))
+    get = lambda prefix: next(v for k, v in rows.items() if k.startswith(prefix))
+    assert get("7.")["TOPLAM"] == len(res.trades) + len(res.open_trades)
+    assert get("6.")["TOPLAM"] == sum(1 for e in res.events if e.kind == "SIGNAL")
+    assert get("2.")["TOPLAM"] >= get("3.")["TOPLAM"] >= get("4.")["TOPLAM"] >= get("5.")["TOPLAM"] >= get("6.")["TOPLAM"]
+    assert get("4.")["TOPLAM"] == get("   giriş zonu YOK")["TOPLAM"] + get("5.")["TOPLAM"]
+    for r in rows.values():
+        assert sum(r.get(c, 0) for c in ("PRO", "MIXED", "COUNTER_HTF", "UNKNOWN")) in (r["TOPLAM"], 0)
+    assert "PRO" in format_funnel(res) and "NO_ENTRY_ZONE" in diagnostics_text(res) and "retire_after" in diagnostics_text(res)

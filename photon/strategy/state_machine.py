@@ -79,12 +79,17 @@ class Setup:
     cancelled: Optional[str] = None              # kalıcı iptal nedeni (POI geçersiz)
     notes: list[str] = field(default_factory=list)
     wait_reason: str = ""                       # POI_MITIGATED'da bekleme nedeni (Q-E8, kullanıcı kararı)
+    trend_class: str = "UNKNOWN"                # son izin değerlendirmesindeki trend sınıfı (PRO/MIXED/COUNTER_HTF/UNKNOWN) — huni raporu için
+    trace: list = field(default_factory=list)   # (zaman, aşama, trend sınıfı, ayrıntı): yalnız teşhis/rapor; karar vermez
 
     def to(self, new: State, time: datetime, reason: str = "") -> None:
         if new not in ALLOWED[self.state]:
             raise IllegalTransition(f"{self.state.value} → {new.value} yasak ({self.id})")
         self.history.append((time, self.state, new, reason))
         self.state = new
+
+    def log(self, time: datetime, stage: str, detail: str = "") -> None:
+        self.trace.append((time, stage, self.trend_class, detail))
 
     def reject(self, time: datetime, reason: str, rule: str = "", detail: str = "") -> None:
         self.rejections.append(Rejection(time, reason, rule, detail))

@@ -131,6 +131,8 @@ class BacktestResult:
     unfilled_orders: int
     candles: int
     equity: list[tuple[datetime, Decimal]] = field(default_factory=list)
+    setups: list = field(default_factory=list)          # tüm kurulumlar (aktif + arşiv): huni/teşhis raporu
+    runner: object = None
 
 
 class BacktestEngine:
@@ -217,4 +219,5 @@ class BacktestEngine:
                     self.pending.pop(e.setup.id, None)
         return BacktestResult(self.pair, self.start, self.end, self.initial, self.runner.balance, self.closed,
                               list(self.positions.values()), self.events, self.commission,
-                              dict(self.pm.stats), self.runner.limit_report(), len(self.pending), self.n_candles, self.equity)
+                              dict(self.pm.stats), self.runner.limit_report(), len(self.pending), self.n_candles, self.equity,
+                              self.model.setups + self.model.archive, self.runner)

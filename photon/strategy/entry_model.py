@@ -24,6 +24,7 @@ from ..risk.sizing import SizeResult, SizingParams, position_size
 from ..risk.stops import EntryPlan, Rejected, Side, StopParams, ZoneBounds, plan_entry
 from ..signals.news import NewsCalendar, NewsNote, NewsStatus
 from ..structure.engine import StructureEngine
+from ..structure.pd import swing_range
 from ..structure.models import EventType, MarketState, StructureEvent, Trend
 from ..zones.engine import ZoneEngine
 from ..zones.models import Zone, ZoneKind
@@ -125,6 +126,26 @@ class SignalEvent:
 
 
 # ------------------------------------------------------------------ yardımcılar
+def _window_zones(ze: ZoneEngine, choch: StructureEvent) -> str:
+    """NO_ENTRY_ZONE teşhisi: CHoCH penceresinde [origin, break] doğan M1 zonları (yön fark etmeksizin) ve pencere uzunluğu.
+    `retire_after` hipotezi: pencere uzunluğu > retire_after ise emekli zon bağlamayı etkileyebilirdi (`leg_len`)."""
+    want = ZoneKind.DEMAND if choch.dir is Trend.BULL else ZoneKind.SUPPLY
+    inw = [z for z in ze.zones if choch.origin_index <= z.created_index <= choch.break_index]
+    same = [z for z in inw if z.kind is want]
+    return (f"retire_after={ze.p.retire_after} leg_len={choch.break_index - choch.origin_index} "
+            f"zones_in_window={len(inw)} same_kind={len(same)} "
+            f"same_kind_detail=[{', '.join(f'{z.id}:{z.origin.value}:valid={z.valid}:flip={z.is_flip}:caused={len(z.caused_events)}' for z in same)}]")
+
+
+def _range_detail(view: "MarketView", poi_p: POIParams, s: Setup) -> str:
+    st = view.states.get(poi_p.range_tf)
+    r = swing_range(st) if st is not None else None
+    if r is None:
+        return " range=None"
+    return (f" range_tf={poi_p.range_tf.value} range_low={r[0]}@idx{st.swing_low.index} range_high={r[1]}@idx{st.swing_high.index} "
+            f"zone_eq={s.poi.eq} poi={s.poi.id} poi_tf={s.poi.tf.value} m15_trend={st.swing_trend.value}")
+
+
 def side_of(direction: Trend) -> Side:
     return Side.LONG if direction is Trend.BULL else Side.SHORT
 
@@ -215,6 +236,7 @@ class EntryModel:
         self.mgmt = mgmt
         self.clock, self.tracker, self.news = clock, tracker, news
         self.setups: list[Setup] = []
+        self.archive: list[Setup] = []          # POI geçersizleşip izlemeden çıkan kurulumlar (huni raporu için saklanır)
         self.book = SignalBook(params.duplicate_policy, params.opposite_policy)
         self._engines: dict[str, ZoneEngine] = {}
         self.stats = {"liquidation_window_capped": 0, "liquidation_window_capped_no_sweep": 0}   # Q-L3: sınır nedeniyle etkilenen durumlar
@@ -245,6 +267,7 @@ class EntryModel:
                 if s.state is not State.WATCHING:
                     s.to(State.WATCHING, view.now, "POI_INVALIDATED")
                 self.setups.remove(s)
+                self.archive.append(s)
                 if s in self.book.setups:
                     self.book.setups.remove(s)
                 continue
@@ -303,24 +326,30 @@ class EntryModel:
             if not s.liquidation.found:
                 self.stats["liquidation_window_capped_no_sweep"] += 1      # 48 saat sınırı olmasa belki bulunurdu (elenen durum)
         s.to(State.POI_MITIGATED, view.now, f"MITIGATION:{hit.id}")
+        _, tc0 = self._permission(s, view, s.mitigation_time)
+        s.trend_class = tc0.value if tc0 else "UNKNOWN"
+        s.log(view.now, "MITIGATED", f"zone={hit.id} poi_eq={s.poi.eq} liquidation={'FOUND' if s.liquidation.found else s.liquidation.reason}")
         return self._mitigated(s, view, c)
 
     def _mitigated(self, s: Setup, view: MarketView, c: Candle) -> list[SignalEvent]:
         """POI_MITIGATED: izin (EN-R006/Q-P1) ve karşı-HTF çift BOS (EN-R007). Q-E8 (KULLANICI KARARI): reddedilirse kurulum burada BEKLER —
         POI geçersizleşene kadar her mumda yeniden değerlendirilir (M15 CHoCH sonradan gelebilir); bekleme süresince limit sinyal yok."""
         perm, tclass = self._permission(s, view, s.mitigation_time)
+        s.trend_class = tclass.value if tclass else "UNKNOWN"
         if not perm.allowed:
             return self._wait(s, view, "PERMISSION", perm.rule, perm.reason)
         if (tclass is TrendClass.COUNTER_HTF and self.p.counter_htf_require_double_bos
                 and not double_bos(view.m15_events, s.direction)):
             return self._wait(s, view, "COUNTER_HTF_NEEDS_DOUBLE_BOS", "EN-R007", "M15'te işlem yönünde ardışık 2 BOS yok")
         s.wait_reason = ""
+        s.log(view.now, "PERMISSION_OK", perm.row)
         s.to(State.CONFIRMATION_PENDING, view.now, perm.row)
         return self._confirming(s, view, c)               # dokunuş mumunun kendisinde CHoCH olamaz (indeks > visit_start şartı)
 
     def _wait(self, s: Setup, view: MarketView, reason: str, rule: str, detail: str) -> list[SignalEvent]:
         if s.wait_reason != reason:                       # aynı nedenle bekleme tek kez kaydedilir
             s.reject(view.now, reason, rule, detail)
+            s.log(view.now, f"PERMISSION_WAIT:{reason}", detail)
             s.wait_reason = reason
         return []
 
@@ -341,9 +370,13 @@ class EntryModel:
         ze1 = view.m1_zones
         zone, kind = choose_entry_zone(choch, ze1, self.p.decisional_flip_requires_sweep)
         s.to(State.ENTRY_READY, t, f"CHOCH:{choch.time:%H:%M}")
+        s.log(t, "CHOCH", f"choch_time={choch.time.isoformat()} level={choch.level} origin_index={choch.origin_index} "
+                          f"break_index={choch.break_index} leg_len={choch.break_index - choch.origin_index}")
         if zone is None:
+            s.log(t, "NO_ENTRY_ZONE", _window_zones(ze1, choch))
             return self._abort(s, t, "NO_ENTRY_ZONE", "EN-R001/5", "CHoCH'a neden olan flip veya extreme zon yok")
         s.entry_zone, s.entry_zone_kind = zone, kind
+        s.log(t, "ENTRY_ZONE_OK", f"{kind} {zone.id}")
         liq = s.liquidation
         vshape = v_shape_exit(s.visit_start, choch.break_index, self.p.v_shape_max_candles)
         return self._finalize(s, view, zone, kind, liq, vshape)
@@ -370,6 +403,7 @@ class EntryModel:
         t = view.now
         risk_mode = self.p.entry_type == "RISK"
         perm, tclass = self._permission(s, view, s.mitigation_time)
+        s.trend_class = tclass.value if tclass else "UNKNOWN"
         poi_params = self.poi_p if not risk_mode else POIParams(self.poi_p.weights, self.poi_p.range_filter_enabled,
                                                                self.poi_p.range_band_pct, self.poi_p.range_tf, False)
         ctx = POIContext(direction=s.direction, states=view.states, permission=perm, session=self.clock.may_open(t),
@@ -380,6 +414,8 @@ class EntryModel:
         res: POIResult = evaluate_poi(s.poi, ctx, poi_params)
         if not res.passed:
             g = res.failed_gates[0]
+            for fg in res.failed_gates:
+                s.log(t, f"GATE_FAIL:{fg.name}", fg.reason + (_range_detail(view, self.poi_p, s) if fg.name == "range_filter" else ""))
             return self._abort(s, t, f"GATE:{g.name}", g.rule, g.reason)
         side = side_of(s.direction)
         plan = plan_entry(ZoneBounds(zone.top, zone.bottom), side, self.stop_p)
@@ -407,6 +443,7 @@ class EntryModel:
                              ("EN-R001", "EN-R006", "SD-R005", "PD-R003", "SL-R001", "SL-R003", "FM-02", "RK-R001",
                               "MG-R001", "MG-R002", "MG-R005"))
         s.intent = intent
+        s.log(t, "SIGNAL", f"{kind} entry={plan.entry} stop={plan.stop}")
         s.to(State.ORDER_PENDING, t, f"SIGNAL:{kind}")
         return [SignalEvent("SIGNAL", s, t, intent)]
 

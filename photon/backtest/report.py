@@ -4,8 +4,10 @@ dolum modeli sayaçları, Q-L3 sınır sayaçları. Yalnızca raporlar — strat
 from __future__ import annotations
 
 import csv
+import re
 from collections import Counter, defaultdict
 from dataclasses import dataclass
+from datetime import timedelta
 from decimal import Decimal
 from pathlib import Path
 from typing import Optional, Sequence
@@ -124,6 +126,83 @@ def exit_reasons(trades: Sequence[Trade]) -> Counter:
     return c
 
 
+CLASSES = ("PRO", "MIXED", "COUNTER_HTF", "UNKNOWN")
+
+
+def funnel(res: BacktestResult) -> list[tuple[str, dict]]:
+    """Kurulum hunisi: POI tespit → mitigasyon → izin → M1 CHoCH → giriş zonu → kapılar → sinyal → dolum. Sayılar OLAY sayısıdır
+    (bir kurulum birden çok kez mitige olabilir); ilk satır benzersiz kurulum sayısıdır. Trend sınıfı olayın anındaki sınıftır."""
+    rows: list[tuple[str, dict]] = []
+    cnt: dict[str, Counter] = defaultdict(Counter)
+    for s in res.setups:
+        for _, stage, cls, _ in s.trace:
+            cnt[stage][cls] += 1
+    uniq = len(res.setups)
+    born = sum(1 for s in res.setups if not s.poi.warmup)
+    rows.append((f"1. POI izlenen kurulum (benzersiz; dönem içinde doğan {born})", {"TOPLAM": uniq}))
+
+    def add(label, stage):
+        c = cnt.get(stage, Counter())
+        rows.append((label, {**{k: c.get(k, 0) for k in CLASSES}, "TOPLAM": sum(c.values())}))
+    add("2. Mitigasyon (POI/rafine zona dokunuş)", "MITIGATED")
+    for st in sorted(k for k in cnt if k.startswith("PERMISSION_WAIT:")):
+        add(f"   izin bekleme: {st.split(':', 1)[1]}", st)
+    add("3. İzin geçti (EN-R006/Q-P1)", "PERMISSION_OK")
+    add("4. M1 CHoCH (mitigasyondan sonra)", "CHOCH")
+    add("   giriş zonu YOK (NO_ENTRY_ZONE)", "NO_ENTRY_ZONE")
+    add("5. Giriş zonu bulundu", "ENTRY_ZONE_OK")
+    for st in sorted(k for k in cnt if k.startswith("GATE_FAIL:")):
+        add(f"   kapı elendi: {st.split(':', 1)[1]} (aynı anda birden çok kapı olabilir)", st)
+    add("6. Sinyal", "SIGNAL")
+    can = Counter(e.setup.trend_class for e in res.events if e.kind == "CANCELLED")
+    rows.append(("   dolmadan iptal", {**{k: can.get(k, 0) for k in CLASSES}, "TOPLAM": sum(can.values())}))
+    fl = Counter(t.intent.trend_class for t in res.trades + res.open_trades)
+    rows.append(("7. Dolum (işlem)", {**{k: fl.get(k, 0) for k in CLASSES}, "TOPLAM": sum(fl.values())}))
+    return rows
+
+
+def format_funnel(res: BacktestResult) -> str:
+    L = [f"  {'aşama':<78}" + "".join(f"{c:>13}" for c in CLASSES + ("TOPLAM",))]
+    for label, d in funnel(res):
+        L.append(f"  {label:<78}" + "".join(f"{d.get(c, 0) if c in d else '':>13}" for c in CLASSES + ("TOPLAM",)))
+    return "\n".join(L)
+
+
+_IDX = re.compile(r"@idx(\d+)")
+
+
+def diagnostics_text(res: BacktestResult, tz: ZoneInfo = ISTANBUL, per_cat: int = 6) -> str:
+    """Teşhis: range_filter ve NO_ENTRY_ZONE örnekleri (zaman, range, zon EQ %), NO_ENTRY_ZONE pencere istatistikleri."""
+    T = res.runner.struct[next(tf for tf in res.runner.struct if tf.value == "M15")].T if res.runner is not None else []
+
+    def conv(txt: str) -> str:
+        return _IDX.sub(lambda m: f"@idx{m.group(1)}({T[int(m.group(1))].strftime('%m-%d %H:%M')}Z)" if int(m.group(1)) < len(T) else m.group(0), txt)
+    L: list[str] = []
+    recs = [(t, st, cls, d, s) for s in res.setups for (t, st, cls, d) in s.trace]
+    for title, stage in (("GATE_FAIL:range_filter", "GATE_FAIL:range_filter"), ("NO_ENTRY_ZONE", "NO_ENTRY_ZONE")):
+        rs = sorted((r for r in recs if r[1] == stage), key=lambda r: r[0])
+        L.append(f"── {title}: {len(rs)} olay, {len({r[4].id for r in rs})} benzersiz kurulum ──")
+        byc = Counter(r[2] for r in rs)
+        L.append("   sınıf kırılımı: " + ", ".join(f"{k}={v}" for k, v in byc.most_common()))
+        if stage == "NO_ENTRY_ZONE":
+            legs = [int(m.group(1)) for r in rs if (m := re.search(r"leg_len=(\d+)", r[3]))]
+            ret = [int(m.group(1)) for r in rs if (m := re.search(r"retire_after=(\d+)", r[3]))]
+            if legs and ret:
+                L.append(f"   CHoCH bacağı (origin→kırılım) uzunluğu: min {min(legs)}, medyan {sorted(legs)[len(legs) // 2]}, max {max(legs)} M1 mum; "
+                         f"retire_after={ret[0]} aşan: {sum(1 for x in legs if x > ret[0])}")
+            zw = [(int(re.search(r'zones_in_window=(\d+)', r[3]).group(1)), int(re.search(r'same_kind=(\d+)', r[3]).group(1))) for r in rs]
+            L.append(f"   pencerede hiç zon yok: {sum(1 for a, _ in zw if a == 0)}; zon var ama yön uyumlu yok: {sum(1 for a, b in zw if a > 0 and b == 0)}; "
+                     f"yön uyumlu zon var ama CHoCH'a bağlı değil: {sum(1 for _, b in zw if b > 0)}")
+        pro = [r for r in rs if r[2] == "PRO"]
+        pick = (pro[:per_cat // 2 + 1] + [r for r in rs if r[2] != "PRO"])[:per_cat] if stage != "NO_ENTRY_ZONE" else rs[:per_cat]
+        if stage == "NO_ENTRY_ZONE":
+            pick = (pro[:3] + [r for r in rs if r[2] != "PRO"])[:per_cat]
+        for t, st, cls, d, s in pick:
+            L.append(f"   [{cls}] {t.astimezone(tz):%Y-%m-%d %H:%M} ({tz.key}) {s.id} {s.direction.value}: {conv(d)}")
+        L.append("")
+    return "\n".join(L)
+
+
 def format_report(res: BacktestResult, tz: ZoneInfo = ISTANBUL) -> str:
     m = compute_metrics(res)
     L: list[str] = []
@@ -150,6 +229,9 @@ def format_report(res: BacktestResult, tz: ZoneInfo = ISTANBUL) -> str:
     jm = journal_matrix(res)
     a(f"VALID_WIN {jm['VALID_WIN']} | VALID_LOSS {jm['VALID_LOSS']} | INVALID_WIN {jm['INVALID_WIN']} | INVALID_LOSS {jm['INVALID_LOSS']}"
       "   (INVALID = plana aykırı işlem; backtest plana aykırı işlem açmaz → 0, Q-B3)")
+    a("")
+    a("── Kurulum hunisi (olay sayıları; ayrıntı ve örnekler: *_diag.txt) ──")
+    a(format_funnel(res))
     a("")
     a("── Sinyal / emir akışı ──")
     kinds = Counter(e.kind for e in res.events)
@@ -201,7 +283,7 @@ def format_report(res: BacktestResult, tz: ZoneInfo = ISTANBUL) -> str:
     return "\n".join(L)
 
 
-TRADE_COLS = ["id", "side", "poi_tf", "trend_class", "session", "signal_time_utc", "fill_time_utc", "close_time_utc",
+TRADE_COLS = ["id", "side", "poi_tf", "trend_class", "session", "signal_candle_open_utc", "signal_time_utc", "fill_candle_open_utc", "fill_after_signal_min", "close_time_utc",
               "fill_time_istanbul", "entry", "stop", "pip_risk", "lots", "risk_amount", "m15_target_r", "closer_than_4r",
               "r_gross", "r_net", "gross_pnl", "commission", "net_pnl", "balance_before", "balance_after", "outcome",
               "journal_tag", "poi_score", "poi_max_score", "exits", "notes", "news"]
@@ -211,7 +293,8 @@ def _trade_row(t: Trade, tz: ZoneInfo) -> dict:
     it = t.intent
     m15r = t.m15_target_r
     return {"id": t.id, "side": it.side.value, "poi_tf": it.poi_tf.value, "trend_class": it.trend_class, "session": it.session,
-            "signal_time_utc": it.time.isoformat(), "fill_time_utc": t.fill_time.isoformat(),
+            "signal_candle_open_utc": (it.time - timedelta(minutes=1)).isoformat(), "signal_time_utc": it.time.isoformat(),
+            "fill_candle_open_utc": t.fill_time.isoformat(), "fill_after_signal_min": int((t.fill_time - it.time).total_seconds() // 60),
             "close_time_utc": t.close_time.isoformat() if t.close_time else "",
             "fill_time_istanbul": t.fill_time.astimezone(tz).strftime("%Y-%m-%d %H:%M"),
             "entry": it.entry, "stop": it.stop, "pip_risk": it.pip_risk, "lots": it.lots, "risk_amount": it.risk_amount,
@@ -267,6 +350,17 @@ def write_outputs(res: BacktestResult, out: Path, tz: ZoneInfo = ISTANBUL) -> di
         for r in rows:
             w.writerow({k: ("" if v is None else v) for k, v in r.items()})
     paths["criteria"] = p
+    p = out / f"{res.pair}_diag.txt"
+    p.write_text(diagnostics_text(res, tz), encoding="utf-8")
+    paths["diag"] = p
+    p = out / f"{res.pair}_setups.csv"
+    with p.open("w", newline="", encoding="utf-8") as fh:
+        w = csv.writer(fh)
+        w.writerow(["setup_id", "direction", "time_utc", "stage", "trend_class", "detail"])
+        for st in res.setups:
+            for t, stage, cls, d in st.trace:
+                w.writerow([st.id, st.direction.value, t.isoformat(), stage, cls, d])
+    paths["setups"] = p
     p = out / f"{res.pair}_report.txt"
     p.write_text(format_report(res, tz) + "\n", encoding="utf-8")
     paths["report"] = p
