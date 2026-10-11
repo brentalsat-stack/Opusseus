@@ -208,3 +208,14 @@ def test_nested_and_refined_geometry():
     assert refined_zones(h4, [invalid], PIPETTE) == []
     h4.invalidated_index = 3
     assert nested_parents(m15, [h4], PIPETTE) == []                       # kullanılamaz üst zon
+
+
+def test_zones_sharing_the_same_event_are_marked_for_backtest_review():
+    e1, e2 = ev(), ev(EventType.CHOCH)
+    a = zone(caused_events=[e1]); a.id = "A"
+    b = zone(origin=Origin.RANGE, caused_events=[e1]); b.id = "B"           # aynı olaya bağlı (pivot + range)
+    c = zone(caused_events=[e2]); c.id = "C"
+    r = evaluate_poi(a, ctx(peers=[a, b, c]), PARAMS)
+    assert r.shares_event_with == ("B",) and "aynı olaya bağlı zonlar: B" in r.breakdown()
+    assert evaluate_poi(c, ctx(peers=[a, b, c]), PARAMS).shares_event_with == ()
+    assert r.score == evaluate_poi(a, ctx(), PARAMS).score                    # puanı etkilemez

@@ -207,6 +207,7 @@ MODULES: dict[str, ModuleSpec] = {
         R("zone_draw_mode.H4", one_of("RANGE", "PIVOT", "CANDLE", "FRACTAL_WICK")),
         R("zone_draw_mode.M15", one_of("RANGE", "PIVOT", "CANDLE", "FRACTAL_WICK")),
         R("zone_draw_mode.M1", one_of("REACTION_BASE_TO_TOP", "RANGE", "PIVOT", "CANDLE", "FRACTAL_WICK")),
+        R("zone_draw_mode.D1", one_of("RANGE", "PIVOT", "CANDLE", "FRACTAL_WICK")),
         R("require_refined_ltf_zone_in_htf_poi", is_bool),
         R("range_detection.type", one_of("INSIDE_BAR_CHAIN")),
         R("range_detection.min_candles", int_ge(2)),
@@ -227,12 +228,15 @@ MODULES: dict[str, ModuleSpec] = {
         R("range_extreme_filter.allowed_band_pct", num_gt(0)),
         R("range_extreme_filter.range_tf", one_of("D1", "H4", "M15")),
     ), depends_on=("data",)),
-    "vshape": ModuleSpec((  # Q-Z8: ölçüt onaylanana kadar REQUIRED
-        R("v_shape_metric"),
+    "vshape": ModuleSpec((  # Q-Z8 (onaylandı): M1 CHoCH'a kadar ≤ N M1 mumu
+        R("v_shape_metric.type", one_of("CANDLES_TO_CHOCH")),
+        R("v_shape_metric.max_candles", int_ge(0)),
     ), depends_on=("data",)),
     "strategy": ModuleSpec((  # POI-R004, EN-R001..R009
         R("entry_type", one_of("RISK", "CONFIRMATION", "DOUBLE_CONFIRMATION")),
         R("decisional_flip_requires_sweep", is_bool),
+        R("duplicate_signal_policy", one_of("REJECT", "REPLACE", "ALLOW")),
+        R("opposite_signal_policy", one_of("REJECT", "ALLOW")),
         R("require_pd_alignment", is_bool),
         R("counter_htf_require_double_bos", is_bool),
         R("pro_trend_reference", one_of("H4", "M15", "BOTH")),

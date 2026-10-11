@@ -25,7 +25,7 @@ Eşik puan yok: kapıları geçen her POI sinyal üretir; puan + kriter döküm�
 Doğrulama çıktısı: `python -m photon zones --tf M15 --start 2021-09-01 --end 2021-09-30` → `zones_out/*_zones.csv` + `.png`.
 
 ---
-# ONAYINIZI BEKLEYEN ÜÇ ÖNERİ
+# ONAYLANAN KARARLAR (kullanıcı) — metin onay öncesi öneri kaydıdır
 
 ## 1) Zon → BOS/CHoCH bağlama algoritması (SD-R005, Q-Z5)
 Kaynak yalnızca "BOS'u yapan hareketin başladığı arz/talep" diyor. Önerim:
@@ -86,7 +86,8 @@ ID: Q-Z6  TÜR: UNDEFINED  İLGİLİ KURAL: LQ-R002 — Sweep zone: zon oluşurk
   geri tarafında kapanmalı. Hesap tembel (yalnız POI adayları).
 ID: Q-Z7  TÜR: UNDEFINED  İLGİLİ KURAL: LQ-R003 — Inducement: zonun fiyat tarafında, zon doğduktan sonra oluşmuş, süpürülmemiş minor dip/tepe
   veya eşit dip/tepe. "Hemen önünde" mesafe sınırı yok. ALARM anında (fiyat henüz zon dışındayken) hesaplanıp POIContext'e verilir.
-ID: Q-L1  TÜR: UNDEFINED  İLGİLİ KURAL: EN-R001 adım 1 — Liquidation penceresi = fiyatın zonu son terk ettiği andan mevcut dokunuşa
+ID: Q-L1  ONAYLANDI (c): liquidation = eşit tepe/dip (2 pip) VEYA M1 iç referans seviyesinin süpürülmesi; sıradan minor uçlar sayılmaz.
+  (Önceki bulgu metni:) EN-R001 adım 1 — Liquidation penceresi = fiyatın zonu son terk ettiği andan mevcut dokunuşa
   kadar; seviye = pencerede oluşmuş, zon dışındaki minor dip/tepe veya eşit dip/tepe, ilk wick geçişi dokunuş mumundan sonra olamaz.
   ⚠ BULGU: zonun dışında oluşmuş her seviye, fiyat zona inerken zaten geçilir → tek-minor seviyelerle kapı neredeyse HER ZAMAN geçer
   (anlamlı ayırt edici yalnızca eşit dip/tepe). `LiquidationResult.level.source` EQ/MINOR ayırır. Seçenekler: (a) literal (bugünkü), (b) yalnız EQ

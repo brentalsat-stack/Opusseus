@@ -17,9 +17,14 @@ TickProvider = Callable[[datetime, datetime], Optional[Sequence[Tick]]]
 
 class SubTfResolver:
     def __init__(self, m1: Sequence[QuoteCandle], side: PriceSide,
-                 ticks: TickProvider | None = None):
-        """`m1`: zaman sıralı M1 mumları (yapı motoruyla AYNI fiyat tarafı: `side`)."""
-        self._m1, self._times, self._side, self._ticks = list(m1), [c.open_time for c in m1], PriceSide(side), ticks
+                 ticks: TickProvider | None = None, times: list | None = None):
+        """`m1`: zaman sıralı M1 mumları (yapı motoruyla AYNI fiyat tarafı: `side`).
+        `times` verilirse `m1` ile birlikte KOPYALANMADAN paylaşılır (canlı/akış kullanımı: çağıran ikisine de ekler)."""
+        if times is not None:
+            self._m1, self._times = m1, times
+        else:
+            self._m1, self._times = list(m1), [c.open_time for c in m1]
+        self._side, self._ticks = PriceSide(side), ticks
 
     def first_touch(self, tf: Timeframe, open_time: datetime, up_level: Decimal,
                     down_level: Decimal, pipette: Decimal) -> Optional[str]:

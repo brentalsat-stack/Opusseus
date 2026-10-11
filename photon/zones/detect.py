@@ -14,7 +14,7 @@ from typing import Optional, Sequence
 from ..data.models import Candle
 from .models import Origin, ZoneKind
 
-MAX_CHAIN_LOOKBACK = 200   # uygulama sınırı (strateji parametresi değil): zincir aramasında geriye en fazla mum
+MAX_CHAIN_LOOKBACK = 60    # uygulama sınırı (strateji parametresi değil): inside-bar zincir aramasında geriye en fazla mum
 
 
 @dataclass(frozen=True)

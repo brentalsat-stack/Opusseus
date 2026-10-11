@@ -34,7 +34,7 @@ Yapı yalnızca kapanmış mumlarla güncellenir. Bearish mantık, bullish mant�
 | Q-S07 | KARAR (kullanıcı kararı) | MS-R008'in iki yönlü bootstrap uygulaması (aşağıda). |
 | Q-S08 | KARAR | Çözülemeyen outside bar'da iç yapı değişmez, sinyal yok. |
 
-Q-S07/Q-S08 onaylandı. Yeni açık soru: **Q-S09** (Q-S03 tanılaması: bkz. `photon/zones/README.md` sonu).
+Q-S07/Q-S08 onaylandı. **Q-S09 ONAYLANDI** (kırılış mumunun kendi ucu, sonraki mum kıramazsa referans; 1 mum gecikme, lookahead yok; kullanıcı kararı): `StructureEngine(defer_own_extreme=True)`, diagnostics `Q-S09-ok/fail`. Eski açık soru metni: (Q-S03 tanılaması: bkz. `photon/zones/README.md` sonu).
 
 ```text
 ID: Q-S07  TÜR: IMPLEMENTATION DECISION REQUIRED  İLGİLİ KURAL: MS-R006/R008 (cold start, U-15)

@@ -16,7 +16,7 @@ from .models import Origin, Zone, ZoneKind
 
 _COLS = ["id", "tf", "kind", "origin", "draw", "top", "bottom", "created_time", "first_index", "created_index",
          "context", "valid", "caused_by", "is_flip", "flipped_from", "mitigated_time", "invalidated_time",
-         "flipped_time", "fulfilled_time", "warmup", "sweep_zone"]
+         "flipped_time", "fulfilled_time", "warmup", "sweep_zone", "shared_event_with"]
 
 
 def run_zones(candles: Sequence[Candle], sparams: StructureParams, zparams: ZoneParams, live_from: datetime,
@@ -40,17 +40,23 @@ def write_zones_csv(zones: Iterable[Zone], candles: Sequence[Candle], path: str 
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
     n = 0
+    zones = list(zones)
+    by_event: dict[int, list[str]] = {}
+    for z in zones:
+        for e in z.caused_events:
+            by_event.setdefault(id(e), []).append(z.id)
     with p.open("w", newline="", encoding="utf-8") as fh:
         w = csv.writer(fh)
         w.writerow(_COLS)
         for z in zones:
+            shared = sorted({o for e in z.caused_events for o in by_event[id(e)] if o != z.id})
             caused = "|".join(f"{e.type.value}{e.dir.value[0]}@{e.time:%Y-%m-%dT%H:%M}" for e in z.caused_events)
             sweep = ze.sweep_flag(z) if (ze is not None and z.valid) else ""
             w.writerow([z.id, z.tf.value, z.kind.value, z.origin.value, z.draw, z.top, z.bottom,
                         z.created_time.strftime("%Y-%m-%dT%H:%M:%SZ"), z.first_index, z.created_index,
                         z.context.value if z.context else "", z.valid, caused, z.is_flip, z.flipped_from or "",
                         _t(candles, z.mitigated_index), _t(candles, z.invalidated_index), _t(candles, z.flipped_index),
-                        _t(candles, z.fulfilled_index), z.warmup, sweep])
+                        _t(candles, z.fulfilled_index), z.warmup, sweep, "|".join(shared)])
             n += 1
     return n
 

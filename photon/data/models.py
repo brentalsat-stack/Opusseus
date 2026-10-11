@@ -10,6 +10,10 @@ from typing import Optional
 from .tz import UTC
 
 
+_DELTAS = {"D1": timedelta(days=1), "H4": timedelta(hours=4), "M15": timedelta(minutes=15),
+           "M5": timedelta(minutes=5), "M1": timedelta(minutes=1)}
+
+
 class Timeframe(str, Enum):
     D1 = "D1"
     H4 = "H4"
@@ -19,8 +23,7 @@ class Timeframe(str, Enum):
 
     @property
     def delta(self) -> timedelta:
-        return {"D1": timedelta(days=1), "H4": timedelta(hours=4), "M15": timedelta(minutes=15),
-                "M5": timedelta(minutes=5), "M1": timedelta(minutes=1)}[self.value]
+        return _DELTAS[self.value]
 
 
 @dataclass(frozen=True)

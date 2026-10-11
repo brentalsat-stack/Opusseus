@@ -27,6 +27,7 @@ class ZoneParams:
     min_chain: int               # range_detection.min_candles
     reaction_min_pips: Decimal   # reaction_min.pips (SD-R006)
     eqh_tol_pips: Decimal        # eqh_tolerance.pips (LQ-R001/R002)
+    retire_after: Optional[int] = None   # uygulama sınırı (strateji parametresi değil): bu kadar mumdan eski zonlar izlenmez (M1 için bellek/hız)
 
     @property
     def pipette(self) -> Decimal:
@@ -37,8 +38,7 @@ class ZoneParams:
         cfg.require("zones", "liquidity")
         mode = cfg.get(f"zone_draw_mode.{tf.value}")
         if mode is None:
-            # D1 için çizim modu kararı yok (Q-Z3); varsayılan atanmaz
-            raise ValueError(f"zone_draw_mode.{tf.value} tanımsız (Q-Z3)")
+            raise ValueError(f"zone_draw_mode.{tf.value} tanımsız (config'e ekleyin)")
         return cls(cfg.pip_size(pair), mode, cfg.get("range_detection.min_candles"),
                    Decimal(str(cfg.get("reaction_min.pips"))), Decimal(str(cfg.get("eqh_tolerance.pips"))))
 
@@ -57,7 +57,10 @@ class ZoneEngine:
         self.tf, self.p, self.structure = tf, params, structure
         self.candles: list[Candle] = []
         self.zones: list[Zone] = []
+        self._act: list[Zone] = []          # izlenen (kullanılabilir) zonlar
+        self._pip = params.pip_size / 10
         self._tracks: dict[str, _Track] = {}
+        self.validated: list[Zone] = []     # SD-R005: geçerli hale gelen zonlar (tüketici okuyup temizler; POI izleme için)
         self._prev_trend: Trend = Trend.UNDEFINED
         self._seq = 0
 
@@ -87,7 +90,7 @@ class ZoneEngine:
         return z.is_sweep
 
     def active(self) -> list[Zone]:
-        return [z for z in self.zones if z.usable]
+        return list(self._act)
 
     # ---- ana giriş ----
     def update(self, c: Candle, events: list[StructureEvent]) -> list[Zone]:
@@ -99,11 +102,19 @@ class ZoneEngine:
         self.candles.append(c)
         t = len(self.candles) - 1
         new: list[Zone] = []
-        for z in self.active():
+        ra = self.p.retire_after
+        keep: list[Zone] = []
+        for z in list(self._act):
+            if ra is not None and t - z.created_index > ra:
+                self._tracks.pop(z.id, None)
+                continue                                    # emekli: izlenmez (z.zones içinde kalır)
             if z.created_index < t:
                 f = self._advance(z, t)
                 if f is not None:
                     new.append(f)
+            if z.usable:
+                keep.append(z)
+        self._act = keep + [f for f in new]
         new += self._detect(t)
         self._link(events, t)
         self._prev_trend = self.structure.state().swing_trend
@@ -117,6 +128,7 @@ class ZoneEngine:
                  first, t, c.open_time, ctx, is_flip=flip_from is not None, flipped_from=flip_from,
                  warmup=self.structure.live_from is not None and c.open_time < self.structure.live_from)
         self.zones.append(z)
+        self._act.append(z)
         return z
 
     def _context(self, kind: ZoneKind) -> Optional[Context]:
@@ -127,7 +139,8 @@ class ZoneEngine:
 
     def _detect(self, t: int) -> list[Zone]:
         out = []
-        pip = self.p.pipette
+        pip = self._pip
+        # M1'de REACTION_BASE_TO_TOP yalnız flip giriş kutusunu belirler; altta yatan pivot/range zonlar tüm koşu olarak çizilir
         mode = "CANDLE" if self.p.draw_mode == "CANDLE" else "RANGE"
         for g in (pivot_zone(self.candles, t, pip, mode),
                   range_zone(self.candles, t, pip, self.p.min_chain)):
@@ -148,6 +161,8 @@ class ZoneEngine:
             plain = [z for z in cands if not z.is_flip]
             if plain:
                 first = min(plain, key=lambda z: (z.created_index, 0 if z.origin is Origin.PIVOT else 1))
+                if not first.valid:
+                    self.validated.append(first)
                 first.caused_events.append(ev)
             for z in cands:
                 if z.is_flip:
@@ -156,7 +171,7 @@ class ZoneEngine:
     # ---- mitigation / flip / invalidation ----
     def _advance(self, z: Zone, t: int) -> Optional[Zone]:
         c = self.candles[t]
-        s, pip = self._s(z), self.p.pipette
+        s, pip = self._s(z), self._pip
         flip: Optional[Zone] = None
         if z.fulfilled_index is None:
             tr = self._tracks.get(z.id)
@@ -192,5 +207,6 @@ class ZoneEngine:
         self._tracks.pop(z.id, None)
         f = self._mk(z.kind.opposite, Origin.FLIP, "REACTION", max(a, b), min(a, b), tr.rs_idx, t,
                      Context.REVERSAL, flip_from=z.id)
+        self.validated.append(f)                 # flip zonu doğduğu anda geçerlidir (SD-R005/2)
         log.debug("flip %s -> %s @%d", z.id, f.id, t)
         return f

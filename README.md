@@ -98,6 +98,11 @@ Kural→kod→test tablosu ve **Q-P1..Q-P7 açık soruları**: `photon/risk/READ
 `photon/zones/`, `photon/liquidity/`, `photon/strategy/poi.py`. Kural→kod→test tablosu, **üç onay önerisi** (zon→BOS bağlama, V-shape ölçütü, PD-R003 range) ve açık sorular: `photon/zones/README.md`.
 Doğrulama: `python -m photon zones --tf M15 --start 2021-09-01 --end 2021-09-30`.
 
+### Aşama 5 (giriş modeli + durum makinesi + çalıştırıcı)
+
+`photon/strategy/{state_machine,entry_model,runner}.py`. Akış, kural→kod→test tablosu ve **açık sorular (Q-E1..Q-E9)**: `photon/strategy/README.md`.
+Strateji kapısı iki karar bekliyor: `duplicate_signal_policy`, `opposite_signal_policy` (config'te `REQUIRED`).
+
 ### Açık sorular
 
 - Kalan `REQUIRED`: `swing_min_pullback_pips.EURUSD.M1` (kalibrasyon), `v_shape_metric` (Aşama 4).

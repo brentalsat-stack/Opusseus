@@ -23,6 +23,7 @@ class Source(str, Enum):
     SWING = "SWING"
     MINOR = "MINOR"
     EQ = "EQ"
+    INTERNAL = "INTERNAL"   # M1 internal yapının geçerli CHoCH referansı (MS-R003/R004)
 
 
 @dataclass(frozen=True)
@@ -51,15 +52,23 @@ def equal_pools(c: Sequence[Candle], idxs: Sequence[int], side: Side, tol: Decim
     val = (lambda i: c[i].high) if side is Side.HIGH else (lambda i: -c[i].low)
     for b in range(1, len(idxs)):
         i2 = idxs[b]
+        v2 = val(i2)
+        between = None                  # (i1, i2) açık aralığındaki en büyük değer — i1 geriledikçe artımlı büyür
+        prev = i2
         for a in range(b - 1, -1, -1):
             i1 = idxs[a]
-            top = max(val(i1), val(i2))
-            between = max((val(k) for k in range(i1 + 1, i2)), default=top)
-            if between - top > tol:
-                break                                   # aralarında havuz aşıldı; daha eskiler de geçersiz
-            if abs(val(i1) - val(i2)) <= tol:
-                price = top if side is Side.HIGH else -top
-                out.append(Level(side, price, i2, Source.EQ))
+            lo = i1 + 1
+            hi = prev if prev == i2 else prev + 1          # ilk adımda i2 hariç; sonra eski i1 de ara bölgeye girer
+            if lo < hi:
+                m = max(val(k) for k in range(lo, hi))
+                between = m if between is None else max(between, m)
+            prev = i1
+            v1 = val(i1)
+            top = max(v1, v2)
+            if between is not None and between - top > tol:
+                break                                       # aralarında havuz aşıldı; daha eskiler de geçersiz
+            if abs(v1 - v2) <= tol:
+                out.append(Level(side, top if side is Side.HIGH else -top, i2, Source.EQ))
                 break
     return out
 
@@ -67,3 +76,15 @@ def equal_pools(c: Sequence[Candle], idxs: Sequence[int], side: Side, tol: Decim
 def swept(level: Level, c: Candle, pipette: Decimal) -> bool:
     """Mumun wick'i seviyeyi ≥ 1 pipette geçti mi (yönüne bakmadan, kapanış şartı yok)."""
     return c.high - level.price >= pipette if level.side is Side.HIGH else level.price - c.low >= pipette
+
+
+def internal_levels(engine, since: int = 0) -> list[Level]:
+    """İç-yapı motorunun (M1) geçerli referans seviyeleri (MS-R003/R004): bullish iken low-tipi (HL), bearish iken high-tipi (LH).
+    İndeks = referans mumunun, `engine`'e beslenen mum dizisindeki sırası. `since`: yalnızca bu mum indeksinden sonra belirlenenler."""
+    out: list[Level] = []
+    for idx, price, e, at in reversed(engine.iref_log):        # `at` artan sıralı → geriye giderken erken çık
+        if at < since:
+            break
+        out.append(Level(Side.LOW if e > 0 else Side.HIGH, price, idx, Source.INTERNAL))
+    out.reverse()
+    return out

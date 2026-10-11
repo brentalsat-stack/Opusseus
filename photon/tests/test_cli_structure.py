@@ -74,8 +74,7 @@ def test_zones_cli_end_to_end(tmp_path, capsys):
     assert "Zon özeti" in o and "geçerli (SD-R005)" in o
 
 
-def test_zones_cli_d1_needs_draw_mode_decision(tmp_path):
-    import pytest
+def test_zones_cli_d1_uses_range_draw_mode(tmp_path):
     cfg_text = open("config.yaml", encoding="utf-8").read().replace("data_cache/photon.sqlite", str(tmp_path / "c.sqlite")) \
         .replace("logs/photon.log", str(tmp_path / "p.log"))
     cfgp = tmp_path / "config.yaml"
@@ -83,6 +82,5 @@ def test_zones_cli_d1_needs_draw_mode_decision(tmp_path):
     store = CandleStore(tmp_path / "c.sqlite")
     store.put_candles("HISTDATA", synth_m1(datetime(2021, 8, 1, tzinfo=UTC), 30 * 1440))
     store.close()
-    with pytest.raises(ValueError, match="Q-Z3"):
-        main(["zones", "--config", str(cfgp), "--source", "HISTDATA", "--tf", "D1", "--start", "2021-08-20",
-              "--end", "2021-08-30", "--out", str(tmp_path / "o")])
+    assert main(["zones", "--config", str(cfgp), "--source", "HISTDATA", "--tf", "D1", "--start", "2021-08-20",
+                 "--end", "2021-08-30", "--out", str(tmp_path / "o")]) == 0

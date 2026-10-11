@@ -45,6 +45,7 @@ zone_draw_mode:                                 # D-01 KARAR: eğitmen kombinasy
   H4: RANGE                                     # tüm range
   M15: CANDLE                                   # onaylandı: son sell-to-buy mumu, tek mum (tüm range değil)
   M1: REACTION_BASE_TO_TOP                      # giriş kutusu = reaksiyon tabanı→tepesi
+  D1: RANGE                                     # Q-Z3 KARAR: D1 = RANGE (4H gibi)
 require_refined_ltf_zone_in_htf_poi: true       # D-02 KARAR
 require_liquidation: true                       # EN-R001 adım 1 — ZORUNLU kapı
 require_sweep_zone: false                       # D-03 KARAR: puan kriteri
@@ -59,7 +60,7 @@ range_detection: {type: INSIDE_BAR_CHAIN, min_candles: 3, breakout: CLOSE_OUTSID
 breakout_strength: {extra_criterion: NONE}      # yapı kırılımı yeterli
 reaction_min: {pips: 2, measured: REACTION_START_TO_REACTION_EXTREME}   # B-02
 eqh_tolerance: {pips: 2}                        # LQ-R001
-v_shape_metric: REQUIRED                        # B-05: ölçüt Aşama 4'te önerilip onaylanacak
+v_shape_metric: {type: CANDLES_TO_CHOCH, max_candles: 10}   # Q-Z8 KARAR: POI'ye ilk dokunuştan M1 CHoCH'a ≤ N M1 mumu → puan (backtest: 5/10/15/20)
 
 poi_scoring:                                    # DECISIONS v2 §3 — eşik puan YOK
   weights:
@@ -76,6 +77,8 @@ poi_scoring:                                    # DECISIONS v2 §3 — eşik pua
 
 # --- Giriş / stop ----------------------------------------------------------
 decisional_flip_requires_sweep: false   # D-06 KARAR: sweep yoksa da flip zonundan gir
+duplicate_signal_policy: REQUIRED       # Aşama 5 sorusu Q-E5: aynı POI için ikinci sinyal (REJECT | REPLACE | ALLOW)
+opposite_signal_policy: REQUIRED        # Aşama 5 sorusu Q-E6: açık/bekleyen sinyale karşıt yönlü sinyal (REJECT | ALLOW)
 entry_type: CONFIRMATION                # D-07 KARAR
 entry_price_mode: FIXED_SL              # D-08 KARAR
 fixed_sl_pips: 2                        # D-08 KARAR

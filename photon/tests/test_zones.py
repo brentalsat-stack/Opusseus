@@ -244,8 +244,8 @@ def test_zone_params_from_config_and_d1_undefined():
     p = ZoneParams.from_config(cfg, "EURUSD", Timeframe.M15)
     assert (p.draw_mode, p.min_chain, p.reaction_min_pips, p.eqh_tol_pips) == ("CANDLE", 3, D(2), D(2))
     assert ZoneParams.from_config(cfg, "EURUSD", Timeframe.H4).draw_mode == "RANGE"
-    with pytest.raises(ValueError, match="Q-Z3"):
-        ZoneParams.from_config(cfg, "EURUSD", Timeframe.D1)
+    assert ZoneParams.from_config(cfg, "EURUSD", Timeframe.D1).draw_mode == "RANGE"          # Q-Z3 kararı
+    assert ZoneParams.from_config(cfg, "EURUSD", Timeframe.M1).draw_mode == "REACTION_BASE_TO_TOP"
 
 
 def test_engine_rejects_open_candles_and_wrong_tf():

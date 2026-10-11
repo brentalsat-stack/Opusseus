@@ -1,12 +1,12 @@
 """Liquidation (EN-R001 adım 1, ZORUNLU kapı) ve V-shape çıkış ölçütü (Q-Z8 önerisi).
 
-Liquidation: POI'ye (zona) girerken, execution TF'de (M1) bir minor tepe/dip veya eşit tepe/dip wick ile süpürüldü.
+Liquidation (Q-L1, kullanıcı kararı c): POI'ye girerken M1'de EŞİT tepe/dip (≤ tolerans) VEYA M1 İÇ YAPI REFERANS seviyesi wick ile
+  süpürüldü. Sıradan minor uçlar sayılmaz.
   * Mevcut dokunuş (mitigation) = `upto`'ya kadarki en son 'zonun tamamen dışında' mumdan sonraki ilk mum.
   * Seviye penceresi: fiyatın zonu SON terk ettiği andan (önceki ziyaretin sonu; ziyaret yoksa zonun doğduğu an) bu dokunuşa kadar.
-  * Seviye: pencerede oluşmuş, zonun dışında (talepte zon.top üstünde) minor dip/tepe ya da eşit dip/tepe; seviyeyi ≥1 pipette
-    geçen İLK mum (wick, kapanış şartı yok) dokunuş mumundan sonra olamaz.
-Uyarı (Q-L1): zonun dışındaki seviye dokunuştan önce oluştuysa, zona inen fiyat onu zaten geçer; yani tek-minor seviyeler kapıyı
-  neredeyse her zaman geçirir. `LiquidationResult.level.source` ile EQ (eşit tepe/dip) ve MINOR ayrılır; politika katmanı seçer.
+  * Seviye: pencerede oluşmuş, zonun dışında (talepte zon.top üstünde) eşit dip/tepe havuzu (minor uçlardan) ya da `internal_levels`
+    (M1 iç referansları, aynı `m1` dizisine göre indeksli); seviyeyi ≥1 pipette geçen İLK mum (wick, kapanış şartı yok) dokunuş
+    mumundan sonra olamaz. Talepte low-tipi, arzda high-tipi seviyeler dikkate alınır.
 """
 from __future__ import annotations
 
@@ -19,6 +19,9 @@ from ..zones.models import Zone, ZoneKind
 from .levels import Level, Side, Source, equal_pools, minor_highs, minor_lows, swept
 
 
+MAX_WINDOW = 2880   # uygulama sınırı (strateji parametresi değil, Q-L3): seviye penceresi en fazla 48 saat (M1 mumu)
+
+
 @dataclass(frozen=True)
 class LiquidationResult:
     found: bool
@@ -29,7 +32,8 @@ class LiquidationResult:
     touch_index: Optional[int] = None
 
 
-def liquidation(m1: Sequence[Candle], zone: Zone, upto: int, tol: Decimal, pipette: Decimal) -> LiquidationResult:
+def liquidation(m1: Sequence[Candle], zone: Zone, upto: int, tol: Decimal, pipette: Decimal,
+                internal: Sequence[Level] = ()) -> LiquidationResult:
     """`m1[:upto+1]` mumları kullanılır (upto dahil). `tol`: eşit tepe/dip toleransı (fiyat)."""
     demand = zone.kind is ZoneKind.DEMAND
     outside = (lambda c: c.low > zone.top) if demand else (lambda c: c.high < zone.bottom)
@@ -44,13 +48,13 @@ def liquidation(m1: Sequence[Candle], zone: Zone, upto: int, tol: Decimal, pipet
     # pencere başı: bu ziyaretten önceki en son 'zonu kesen/aşan' mumdan sonrası; yoksa zonun doğduğu an
     prev_visit = next((i for i in range(touch - 1, -1, -1) if not outside(m1[i])), None)
     born = next((i for i, c in enumerate(m1) if c.open_time >= zone.created_time), 0)
-    start = max(born, (prev_visit + 1) if prev_visit is not None else 0)
+    start = max(born, (prev_visit + 1) if prev_visit is not None else 0, touch - MAX_WINDOW)
     side = Side.LOW if demand else Side.HIGH
     idx = (minor_lows if demand else minor_highs)(m1, pipette, start, touch)
-    levels = [Level(side, m1[i].low if demand else m1[i].high, i, Source.MINOR) for i in idx]
-    levels += equal_pools(m1, idx, side, tol)
+    levels = equal_pools(m1, idx, side, tol)                              # yalnız eşit dip/tepe havuzları (tek minor sayılmaz)
+    levels += [lv for lv in internal if lv.side is side and start <= lv.index < touch]
     levels = [lv for lv in levels if (lv.price > zone.top if demand else lv.price < zone.bottom)]
-    levels.sort(key=lambda lv: (lv.source is not Source.EQ, lv.index))      # EQ öncelikli, sonra zaman
+    levels.sort(key=lambda lv: (lv.source is not Source.EQ, lv.index))      # EQ öncelikli, sonra iç referans (zaman sırası)
     for lv in levels:
         j = next((k for k in range(lv.index + 1, touch + 1) if swept(lv, m1[k], pipette)), None)
         if j is not None:

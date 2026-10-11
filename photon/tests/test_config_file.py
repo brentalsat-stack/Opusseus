@@ -30,7 +30,8 @@ def test_v2_decisions():
     assert c.get("eqh_tolerance.pips") == 2 and c.get("reaction_min.pips") == 2
     assert c.get("range_detection.min_candles") == 3
     assert c.get("require_liquidation") is True
-    assert c.get("zone_draw_mode") == {"H4": "RANGE", "M15": "CANDLE", "M1": "REACTION_BASE_TO_TOP"}
+    assert c.get("zone_draw_mode") == {"H4": "RANGE", "M15": "CANDLE", "M1": "REACTION_BASE_TO_TOP", "D1": "RANGE"}
+    assert c.get("v_shape_metric") == {"type": "CANDLES_TO_CHOCH", "max_candles": 10}
     assert (c.get("require_sweep_zone"), c.get("require_inducement"), c.get("require_pd_alignment")) == (False, False, False)
     assert c.get("range_extreme_filter.allowed_band_pct") == 25
     w = c.get("poi_scoring.weights")
@@ -53,4 +54,4 @@ def test_stage1_decisions():
 
 def test_only_expected_fields_remain_required():
     from photon.config import find_required
-    assert sorted(find_required(load_config().raw)) == ["swing_min_pullback_pips.EURUSD.M1", "v_shape_metric"]
+    assert sorted(find_required(load_config().raw)) == ["duplicate_signal_policy", "opposite_signal_policy", "swing_min_pullback_pips.EURUSD.M1"]

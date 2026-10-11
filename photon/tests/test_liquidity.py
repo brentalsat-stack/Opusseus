@@ -117,45 +117,73 @@ def test_inducement_level_must_be_in_front_of_zone_not_inside_or_behind():
     assert not has_inducement(z, c, len(c), TOL, PIPETTE)
 
 
-# ---------------- liquidation (EN-R001 adım 1) ----------------
+# ---------------- liquidation (EN-R001 adım 1; Q-L1 kararı c: EQ veya M1 iç referans) ----------------
 def poi_demand():
     return Zone("z", Timeframe.M15, ZoneKind.DEMAND, Origin.PIVOT, "RANGE", px(10), px(5), 0, 1, T0)
 
 
 def test_liquidation_equal_lows_swept_on_the_way_into_demand():
-    # fiyat zonun üstünde (low > 10), iniş: eşit dipler 12 / 12.1 (≤2 pip) oluşur, sonra wick 11.5'e süpürür, sonra zona 9'a dokunur
+    # eşit dipler 12 / 12.1 (≤2 pip) oluşur, sonra wick 11.5 süpürür, sonra zona 9'a dokunur
     rows = [(20, 15), (18, 13), (16, 12), (17, 13), (16, 12.1), (17, 13), (15, 11.5), (13, 9)]
     c = hl(rows)
     r = liquidation(c, poi_demand(), len(c) - 1, TOL, PIPETTE)
     assert r.found and r.level.source is Source.EQ and r.level.price == px(12) and r.sweep_index == 6 and r.touch_index == 7
 
 
+def test_ordinary_minor_low_alone_does_not_count_q_l1():
+    rows = [(20, 15), (18, 13), (16, 12), (17, 13), (15, 11.5), (13, 9)]       # tek minor dip (12): eşit değil, iç referans verilmedi
+    c = hl(rows)
+    r = liquidation(c, poi_demand(), len(c) - 1, TOL, PIPETTE)
+    assert not r.found and r.reason == "NO_SWEEP"
+
+
+def test_internal_reference_level_swept_counts():
+    from photon.liquidity import Level
+    rows = [(20, 15), (18, 13), (16, 12), (17, 13), (15, 11.5), (13, 9)]
+    c = hl(rows)
+    ref = Level(Side.LOW, px(12), 2, Source.INTERNAL)                         # M1 iç yapının geçerli referans dibi
+    r = liquidation(c, poi_demand(), len(c) - 1, TOL, PIPETTE, [ref])
+    assert r.found and r.level.source is Source.INTERNAL and r.sweep_index == 4 and r.touch_index == 5
+    # yanlış taraf (high-tipi), zon içindeki veya pencere öncesi referans sayılmaz
+    assert not liquidation(c, poi_demand(), len(c) - 1, TOL, PIPETTE, [Level(Side.HIGH, px(12), 2, Source.INTERNAL)]).found
+    assert not liquidation(c, poi_demand(), len(c) - 1, TOL, PIPETTE, [Level(Side.LOW, px(9.5), 2, Source.INTERNAL)]).found
+    assert not liquidation(c, poi_demand(), len(c) - 1, TOL, PIPETTE, [Level(Side.LOW, px(12), 5, Source.INTERNAL)]).found   # touch'tan sonra
+
+
+def test_internal_levels_from_real_m1_internal_engine():
+    from photon.liquidity import internal_levels
+    from photon.structure import StructureEngine, StructureParams
+    e = StructureEngine(Timeframe.M1, StructureParams.internal_only_params(PIP))
+    for cnd in hl([(10, 5), (12, 6), (11, 6.5), (13, 7)]):
+        e.update(cnd)
+    (lv,) = internal_levels(e)
+    assert lv.side is Side.LOW and lv.source is Source.INTERNAL and lv.price == px(6.5) and lv.index == 2
+
+
 def test_liquidation_not_mitigated_and_no_sweep_cases():
     c = hl([(20, 15), (18, 14), (17, 13)])
     assert liquidation(c, poi_demand(), len(c) - 1, TOL, PIPETTE).reason == "NOT_MITIGATED"
-    # tek hamlede zona düşüş: ardışık dipler yok, süpürülecek minor yok
-    c = hl([(20, 15), (13, 9)])
+    c = hl([(20, 15), (13, 9)])                                                # tek hamle: süpürülecek seviye yok
     r = liquidation(c, poi_demand(), 1, TOL, PIPETTE)
     assert not r.found and r.reason == "NO_SWEEP" and r.touch_index == 1
 
 
 def test_liquidation_level_must_be_outside_zone_and_window_starts_after_previous_visit():
-    # zon [5..10]; önceki ziyaret idx2 (low 9 zonda); idx0-1'deki dipler pencere dışı; yeni iniş dipleri idx4 (12), sonra dokunuş
-    rows = [(20, 12), (18, 11), (15, 9), (16, 13), (15, 12), (16, 13), (14, 11.5), (13, 9)]
+    # önceki ziyaret idx2 (low 9 zonda); idx0-1'deki eşit dipler pencere dışı; yeni iniş eşit dipleri idx4/idx6
+    rows = [(20, 12), (18, 12.1), (15, 9), (16, 13), (15, 12), (16, 13), (14, 12.1), (15, 13), (14, 11.5), (13, 9)]
     c = hl(rows)
-    r = liquidation(c, poi_demand(), 7, TOL, PIPETTE)
-    assert r.found and r.window_start == 3 and r.level.index == 4 and r.touch_index == 7
-    # zon içinde oluşan dip (zon.top altı) liquidation seviyesi sayılmaz
-    c = hl([(20, 15), (14, 9.5), (13, 9.0), (14, 9.2)])
+    r = liquidation(c, poi_demand(), 9, TOL, PIPETTE)
+    assert r.found and r.window_start == 3 and r.level.source is Source.EQ and r.level.index == 6 and r.touch_index == 9
+    c = hl([(20, 15), (14, 9.5), (13, 9.0), (14, 9.2)])                        # zon içinde oluşan uçlar seviye değil
     assert not liquidation(c, poi_demand(), 3, TOL, PIPETTE).found
 
 
-def test_liquidation_supply_mirror():
+def test_liquidation_supply_mirror_with_equal_highs():
     z = Zone("s", Timeframe.M15, ZoneKind.SUPPLY, Origin.PIVOT, "RANGE", px(20), px(15), 0, 1, T0)
-    rows = [(8, 3), (10, 4), (12, 8), (11, 6), (13, 9), (12, 7), (14.5, 10), (16, 12)]
+    rows = [(8, 3), (10, 4), (12, 8), (11, 6), (12.1, 9), (11, 7), (12, 8), (14.5, 10), (16, 12)]
     c = hl(rows)
     r = liquidation(c, z, len(c) - 1, TOL, PIPETTE)
-    assert r.found and r.touch_index == 7
+    assert r.found and r.level.side is Side.HIGH and r.level.source is Source.EQ and r.touch_index == 8
 
 
 def test_v_shape_exit_candles_to_choch():

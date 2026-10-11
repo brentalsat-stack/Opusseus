@@ -55,6 +55,7 @@ class POIContext:
     has_inducement: Optional[bool] = None              # alarm anında hesaplanmış (LQ-R003)
     nested_parents: Sequence[Zone] = ()                # 4H/D zonlar (refine.nested_parents)
     v_shape: Optional[bool] = None                     # V-shape çıkış (Q-Z8); None = ölçüt/veri yok
+    peers: Sequence[Zone] = ()                         # aynı TF zonları: aynı olaya bağlı eşleri işaretlemek için (kullanıcı isteği)
 
 
 @dataclass(frozen=True)
@@ -82,6 +83,7 @@ class POIResult:
     zone: Zone
     gates: tuple[Gate, ...]
     criteria: tuple[Criterion, ...]
+    shares_event_with: tuple[str, ...] = ()    # aynı yapı olayına bağlı diğer zonlar (çift sayım takibi; puanı etkilemez)
 
     @property
     def passed(self) -> bool:
@@ -100,8 +102,11 @@ class POIResult:
         return sum((c.weight for c in self.criteria), Decimal(0))
 
     def breakdown(self) -> str:
-        return "; ".join(f"{c.name}={'+' + str(c.weight) if c.earned else ('?' if c.earned is None else '0')}"
-                         for c in self.criteria)
+        txt = "; ".join(f"{c.name}={'+' + str(c.weight) if c.earned else ('?' if c.earned is None else '0')}"
+                        for c in self.criteria)
+        if self.shares_event_with:
+            txt += f" | aynı olaya bağlı zonlar: {', '.join(self.shares_event_with)}"
+        return txt
 
 
 def _gates(z: Zone, ctx: POIContext, p: POIParams) -> tuple[Gate, ...]:
@@ -154,6 +159,12 @@ def _pro_trend(ctx: POIContext) -> Optional[bool]:
     return classify_trend(a.swing_trend, b.swing_trend, ctx.direction) is TrendClass.PRO
 
 
+def shared_event_zones(z: Zone, peers: Sequence[Zone]) -> tuple[str, ...]:
+    """`z` ile aynı BOS/CHoCH olayına (nesne kimliğiyle) bağlı diğer zonların id'leri (pivot+range, flip+yapısal vb.)."""
+    mine = {id(e) for e in z.caused_events}
+    return tuple(o.id for o in peers if o is not z and mine and any(id(e) in mine for e in o.caused_events))
+
+
 def evaluate_poi(z: Zone, ctx: POIContext, p: POIParams) -> POIResult:
     earned = {
         "bos_and_flip": bool(z.is_flip and z.caused_events),
@@ -168,4 +179,4 @@ def evaluate_poi(z: Zone, ctx: POIContext, p: POIParams) -> POIResult:
         "corrective_or_vshape": ctx.v_shape,
     }
     crit = tuple(Criterion(k, p.weights[k], earned[k], _RULES[k]) for k in CRITERIA)
-    return POIResult(z, _gates(z, ctx, p), crit)
+    return POIResult(z, _gates(z, ctx, p), crit, shared_event_zones(z, ctx.peers))
