@@ -150,6 +150,14 @@ class PositionManager:
             pos.closed = True
         return out
 
+    def force_close(self, pos: Position, time: datetime, price: Decimal, leg: str, reason: str) -> list[Fill]:
+        """Kalan hacmin tamamını verilen fiyattan kapatır (V8b: haber penceresi başında piyasadan çıkış)."""
+        if pos.closed or pos.lots_open <= 0:
+            return []
+        f = self._fill(pos, time, leg, price, pos.lots_open, reason)
+        pos.closed = True
+        return [f]
+
     def request_scale_in(self, pos: Position) -> ScaleInDecision:
         """MG-R004 (L1): scale-in yalnızca ilk pozisyonun riski kaldırıldıktan sonra (T-MG-02)."""
         if pos.closed:

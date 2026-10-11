@@ -235,7 +235,7 @@ _IDX = re.compile(r"@idx(\d+)")
 
 def diagnostics_text(res: BacktestResult, tz: ZoneInfo = ISTANBUL, per_cat: int = 6) -> str:
     """Teşhis: range_filter ve NO_ENTRY_ZONE örnekleri (zaman, range, zon EQ %), NO_ENTRY_ZONE pencere istatistikleri."""
-    T = res.runner.struct[next(tf for tf in res.runner.struct if tf.value == "M15")].T if res.runner is not None else []
+    T = res.runner.struct[res.runner.profile.mid].T if res.runner is not None else []
 
     def conv(txt: str) -> str:
         return _IDX.sub(lambda m: f"@idx{m.group(1)}({T[int(m.group(1))].strftime('%m-%d %H:%M')}Z)" if int(m.group(1)) < len(T) else m.group(0), txt)
@@ -313,6 +313,9 @@ def format_report(res: BacktestResult, tz: ZoneInfo = ISTANBUL) -> str:
     a(f"Aynı mumda giriş+stop → giriş dolup stop: {fs.get('entry_and_stop_same_candle', 0)}")
     a(f"Giriş mumunda hedef de görüldü (yok sayıldı): {fs.get('entry_and_target_same_candle_ignored', 0)}")
     a(f"Gap'li stop dolumu (açılış fiyatından): {fs.get('stop_gap_fills', 0)}")
+    if any(k in fs for k in ("news_exits", "news_orders_cancelled", "blackout_fill_blocked")):
+        a(f"Haber penceresi: iptal edilen bekleyen emir {fs.get('news_orders_cancelled', 0)}, piyasadan kapatılan pozisyon {fs.get('news_exits', 0)}; "
+          f"rollover saatinde ertelenen dolum denemesi (mum sayısı) {fs.get('blackout_fill_blocked', 0)}")
     amb = sum(1 for s in {e.setup.id: e.setup for e in res.events}.values() for n in s.notes if n.startswith("AMBIGUOUS_FILL_VS_TARGET"))
     a(f"Aynı mumda dolum + ilk hedef (iptal yerine dolum işlendi): {amb}")
     a("")

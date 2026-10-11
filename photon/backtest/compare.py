@@ -12,7 +12,7 @@ import time
 from collections import Counter, defaultdict
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 from typing import Any, Optional
@@ -26,7 +26,7 @@ from .engine import BacktestEngine
 from .report import CLASSES, compute_metrics, monthly_funnel, stop_quick_ratio, write_outputs, funnel
 
 # varsayılan config'te bulunmayan ama kodda varsayılanı olan (davranışı değiştirmeyen) anahtarlar: override ile eklenebilir
-NEW_KEYS_ALLOWED = {"entry_zone_choice"}
+NEW_KEYS_ALLOWED = {"entry_zone_choice", "execution_profile", "session_gate", "min_refine_pips", "fib_entry_pct", "news_blackout"}
 D0 = Decimal(0)
 
 
@@ -42,6 +42,7 @@ class CompareSpec:
     variants: list[Variant]
     vshape_n: list[int]
     vshape_base: Optional[str] = None
+    detail: Optional[tuple[datetime, datetime]] = None      # [başlangıç, bitiş) — bu aralıktaki dolumlar her varyant için ayrı CSV'ye yazılır
 
 
 def load_variants(path: str | Path) -> CompareSpec:
@@ -52,11 +53,14 @@ def load_variants(path: str | Path) -> CompareSpec:
     names = [v.name for v in vs]
     if len(set(names)) != len(names):
         raise ValueError(f"variants.yaml: tekrarlayan varyant adı: {names}")
+    det = raw.get("detail") or {}
     vr = raw.get("vshape_report") or {}
     ns = [int(n) for n in vr.get("n_values") or []]
     if vr.get("base") and vr["base"] not in names:
         raise ValueError(f"vshape_report.base={vr['base']!r} varyant listesinde yok")
-    return CompareSpec(vs, ns, vr.get("base"))
+    detail = (datetime.fromisoformat(str(det["from"])).replace(tzinfo=timezone.utc),
+              datetime.fromisoformat(str(det["to"])).replace(tzinfo=timezone.utc) + timedelta(days=1)) if det else None
+    return CompareSpec(vs, ns, vr.get("base"), detail)
 
 
 def apply_overrides(cfg: Config, overrides: dict[str, Any]) -> Config:
@@ -85,6 +89,35 @@ def _vshape_rows(res) -> list[dict]:
     return rows
 
 
+def write_detail_csv(res, out: Path, d0: datetime, d1: datetime) -> Path:
+    """Belirli aralıktaki (dolum zamanına göre) işlemler: eğitmen işlemleriyle tek tek eşleştirmek için zaman damgalı liste
+    (UTC + Istanbul; sinyal mumu açılışı/kapanışı, dolum mumu, kapanış, giriş/stop/hedefler, çıkışlar, R)."""
+    from zoneinfo import ZoneInfo
+    ist = ZoneInfo("Europe/Istanbul")
+    p = out / f"{res.pair}_trades_detail.csv"
+    rows = [t for t in res.trades + res.open_trades if d0 <= t.fill_time < d1]
+    prof = res.runner.profile if res.runner is not None else None
+    shift = {"M15_WEAK_SWING": f"M15_WEAK_SWING[={prof.mid.value} swing]", "H4_WEAK_SWING": f"H4_WEAK_SWING[={prof.hi.value} swing]"} \
+        if prof is not None and prof.name != "M1" else {}                    # V8: bacak adları ROL adıdır; gerçek TF'yi göster
+    lab = lambda n: shift.get(n, n)
+    with p.open("w", newline="", encoding="utf-8") as fh:
+        w = csv.writer(fh)
+        w.writerow(["no", "side", "poi_tf", "poi_id", "trend_class", "entry_zone_kind", "signal_time_utc", "signal_time_istanbul",
+                    "fill_time_utc", "fill_time_istanbul", "close_time_utc", "close_time_istanbul", "entry", "stop", "pip_risk", "targets",
+                    "exits", "r_gross", "r_net", "outcome", "status", "notes"])
+        for n, t in enumerate(sorted(rows, key=lambda t: t.fill_time), 1):
+            it = t.intent
+            ct = t.close_time
+            w.writerow([n, it.side.value, it.poi_tf.value, it.poi_id, it.trend_class, it.entry_zone_kind, it.time.isoformat(),
+                        it.time.astimezone(ist).strftime("%Y-%m-%d %H:%M"), t.fill_time.isoformat(), t.fill_time.astimezone(ist).strftime("%Y-%m-%d %H:%M"),
+                        ct.isoformat() if ct else "", ct.astimezone(ist).strftime("%Y-%m-%d %H:%M") if ct else "", it.entry, it.stop, it.pip_risk,
+                        "|".join(f"{lab(l.name)}@{l.price}x{l.pct}%" for l in it.plan.legs),
+                        "|".join(f"{lab(f.leg)}@{f.price}x{f.lots}({f.time:%m-%d %H:%M})" for f in t.position.fills),
+                        f"{t.r_gross:.3f}", f"{t.r_net:.3f}", t.outcome if not t.open else "", "OPEN" if t.open else "CLOSED",
+                        "|".join(t.position.notes)])
+    return p
+
+
 def run_variant(task: dict) -> dict:
     """Tek varyantı çalıştırır (ayrı süreçte çağrılabilir; yalnızca basit/picklable değerler döner)."""
     t0 = time.time()
@@ -98,6 +131,8 @@ def run_variant(task: dict) -> dict:
     res = BacktestEngine(cfg, pair, start, end, task["balance"]).run(m1)
     out = Path(task["out"]) / task["name"]
     write_outputs(res, out)
+    if task.get("detail"):
+        write_detail_csv(res, out, *task["detail"])
     m = compute_metrics(res)
     risk = sum((t.intent.risk_amount for t in res.trades), D0)
     q5, nl = stop_quick_ratio(res.trades, 5)
@@ -119,7 +154,7 @@ def run_variant(task: dict) -> dict:
 def run_compare(config_path: str, spec: CompareSpec, source: str, pair: str, start: datetime, end: datetime, balance: Decimal,
                 out: Path, jobs: int = 1, progress=print) -> list[dict]:
     tasks = [{"config": config_path, "name": v.name, "desc": v.desc, "overrides": v.overrides, "source": source, "pair": pair,
-              "start": start, "end": end, "balance": balance, "out": str(out)} for v in spec.variants]
+              "start": start, "end": end, "balance": balance, "out": str(out), "detail": spec.detail} for v in spec.variants]
     results: dict[str, dict] = {}
     if jobs <= 1 or len(tasks) == 1:
         for t in tasks:
@@ -181,12 +216,23 @@ def vshape_distribution(rows: list[dict], ns: list[int], n_config: int) -> str:
     return "\n".join(L)
 
 
-def format_compare(results: list[dict], spec: CompareSpec, start: datetime, end: datetime, balance: Decimal, source: str, pair: str) -> str:
+def missing_inputs(v: Variant) -> Optional[str]:
+    """Varyantın ihtiyaç duyduğu harici dosya yoksa nedeni (varyant atlanır): V8b haber CSV'si."""
+    nb = v.overrides.get("news_blackout")
+    if nb and not Path(nb["file"]).is_file():
+        return f"haber dosyası yok: {nb['file']}"
+    return None
+
+
+def format_compare(results: list[dict], spec: CompareSpec, start: datetime, end: datetime, balance: Decimal, source: str, pair: str,
+                   skipped: Optional[dict[str, str]] = None) -> str:
     L = [f"═══ PHOTON VARYANT KARŞILAŞTIRMA ═══  {pair} {source}  {start:%Y-%m-%d} → {(end - timedelta(seconds=1)):%Y-%m-%d}  "
          f"başlangıç bakiyesi {balance} (aynı veri, aynı warm-up; komisyon dahil: R/getiri 'net')", ""]
     for r in results:
         ov = ", ".join(f"{k}={v}" for k, v in r["overrides"].items()) or "(override yok = mevcut config)"
         L.append(f"  {r['name']}: {r['desc']}  [{ov}]  ({r['seconds']} sn)")
+    for n, why in (skipped or {}).items():
+        L.append(f"  {n}: ATLANDI — {why}")
     L += ["", "── Özet ──", format_table(results), "",
           "(≤5dk stop: kaybeden işlemlerden dolumdan ≤5 dk içinde kapananlar / kaybeden; komisyon/risk: Σkomisyon / Σhedef risk)", "",
           "── Trend sınıfı kırılımı ──", format_classes(results), ""]

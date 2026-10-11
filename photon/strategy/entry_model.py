@@ -8,6 +8,7 @@ Fiyat/karar girdileri `MarketView` ile verilir (motorlar dışarıda); bu modül
 """
 from __future__ import annotations
 
+import dataclasses
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -49,6 +50,8 @@ class EntryParams:
     eq_tol: Decimal                       # eşit tepe/dip toleransı (fiyat)
     pipette: Decimal
     spread: Decimal                       # sabit spread (fiyat): ask = bid + spread
+    refine_min_tf: Timeframe = Timeframe.H4   # D-02 / "4H POI" rolü (profil: M1→H4, V8→D1)
+    min_refine_pips: Decimal = Decimal(0)     # V8 [00:34:45]: POI bu yükseklikten (pip) küçükse rafine edilmez; 0 = kapalı (mevcut davranış)
     entry_zone_choice: str = "FLIP_FIRST"  # FLIP_FIRST (varsayılan; EN-R008, config'te anahtar yok) | EXTREME_ALWAYS (varyant testi: EN-R008 C-11 seçeneği — flip yerine hep V tepki kutusu)
 
     def __post_init__(self) -> None:
@@ -61,13 +64,16 @@ class EntryParams:
 
     @classmethod
     def from_config(cls, cfg, pair: str) -> "EntryParams":
+        from .profile import profile_from_config
         cfg.require("strategy")
         pip = cfg.pip_size(pair)
+        prof = profile_from_config(cfg)
         return cls(cfg.get("entry_type"), cfg.get("decisional_flip_requires_sweep"),
                    cfg.get("counter_htf_require_double_bos"), cfg.get("require_refined_ltf_zone_in_htf_poi"),
                    cfg.get("duplicate_signal_policy"), cfg.get("opposite_signal_policy"),
                    cfg.get("v_shape_metric.max_candles"), Decimal(str(cfg.get("eqh_tolerance.pips"))) * pip, pip / 10,
-                   Decimal(str(cfg.get("costs.spread_pips"))) * pip, cfg.get("entry_zone_choice") or "FLIP_FIRST")
+                   Decimal(str(cfg.get("costs.spread_pips"))) * pip, prof.refine_min_tf,
+                   Decimal(str(cfg.get("min_refine_pips") or 0)), cfg.get("entry_zone_choice") or "FLIP_FIRST")
 
 
 @dataclass
@@ -310,7 +316,8 @@ class EntryModel:
     # ---- WATCHING ----
     def _targets(self, s: Setup, view: MarketView) -> list[Zone]:
         poi = s.poi
-        if poi.tf.delta >= Timeframe.H4.delta and self.p.require_refined_ltf_zone:        # D-02
+        small = (poi.top - poi.bottom) / (self.p.pipette * 10) < self.p.min_refine_pips          # V8: küçük POI rafine edilmez
+        if poi.tf.delta >= self.p.refine_min_tf.delta and self.p.require_refined_ltf_zone and not small:        # D-02
             return refined_zones(poi, view.zones.get(Timeframe.M15, ()), self.p.pipette)
         return [poi]
 
@@ -319,7 +326,7 @@ class EntryModel:
         t15 = view.states[Timeframe.M15].swing_trend
         parents = nested_parents(s.poi, [z for tf in (Timeframe.H4, Timeframe.D1) for z in view.zones.get(tf, ())],
                                  self.p.pipette)
-        in_4h = s.poi.tf.delta >= Timeframe.H4.delta or any(p.mitigated_index is not None for p in parents)
+        in_4h = s.poi.tf.delta >= self.p.refine_min_tf.delta or any(p.mitigated_index is not None for p in parents)
         choch = m15_choch_after_mitigation(view.m15_events, mitigation_time, s.direction)       # Q-P1
         perm = check_permission(t4, t15, s.direction, price_in_htf_poi=True, price_in_4h_poi=in_4h,
                                 m15_choch_toward_dir=choch)
@@ -432,8 +439,7 @@ class EntryModel:
         risk_mode = self.p.entry_type == "RISK"
         perm, tclass = self._permission(s, view, s.mitigation_time)
         s.trend_class = tclass.value if tclass else "UNKNOWN"
-        poi_params = self.poi_p if not risk_mode else POIParams(self.poi_p.weights, self.poi_p.range_filter_enabled,
-                                                               self.poi_p.range_band_pct, self.poi_p.range_tf, False)
+        poi_params = self.poi_p if not risk_mode else dataclasses.replace(self.poi_p, require_liquidation=False)
         ctx = POIContext(direction=s.direction, states=view.states, permission=perm, session=self.clock.may_open(t),
                          liquidation=liq, has_inducement=s.has_inducement,
                          nested_parents=nested_parents(s.poi, [z for tf in (Timeframe.H4, Timeframe.D1)

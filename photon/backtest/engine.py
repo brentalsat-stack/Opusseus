@@ -154,24 +154,62 @@ class BacktestEngine:
         self.events: list[SignalEvent] = []
         self.equity: list[tuple[datetime, Decimal]] = []
         self.n_candles = 0
+        self.clock = self.model.clock
+        self.m15_exec = self.runner.profile.exec_tf is not Timeframe.M1     # V8: model M15'te adımlanır → emir iptali M1 mumlarıyla burada
+        self.extra_stats = {"news_orders_cancelled": 0, "news_exits": 0, "blackout_fill_blocked": 0}
 
     # ---- mum başı simülasyon (giriş modeli adımından ÖNCE) ----
     def _pre_step(self, c: Candle) -> None:
         self.n_candles += 1
         now = c.open_time
+        news = self.clock.news
+        in_news = news is not None and news.in_window(now)
+        if in_news:
+            self._news_flatten(c, now)
+        blackout = self.m15_exec and self.clock.blackout is not None and self.clock.in_blackout(now)    # V8: spread saatlerinde dolum yok
         for sid, s in list(self.pending.items()):
             if s.state is not State.ORDER_PENDING:                  # iptal/yerine koyma: izleme dışı
                 del self.pending[sid]
                 continue
             it: OrderIntent = s.intent
-            if not fill_touch(it.side, it.entry, c, self.spread):
+            touch = fill_touch(it.side, it.entry, c, self.spread)
+            if touch and not blackout:
+                del self.pending[sid]
+                self._fill_entry(s, it, c, now)
                 continue
-            del self.pending[sid]
-            self._fill_entry(s, it, c, now)
+            if touch and blackout:
+                self.extra_stats["blackout_fill_blocked"] += 1
+            if self.m15_exec and it.cancel_if_reaches is not None:
+                reached = (c.high >= it.cancel_if_reaches) if it.side is Side.LONG else (c.low <= it.cancel_if_reaches)
+                if reached:                                          # dolmadan ilk hedefe ulaşıldı (DECISIONS §7) — M1 çözünürlüğünde
+                    del self.pending[sid]
+                    self._cancel(s, it, now, "FIRST_TARGET_REACHED_BEFORE_FILL")
         for sid, tr in list(self.positions.items()):
             if tr.fill_time == now:                                  # bu mumda yeni doldu: giriş mumu kuralları _fill_entry'de uygulandı
                 continue
             self._manage(tr, c, now, entry_candle=False)
+
+    def _cancel(self, s: Setup, it: OrderIntent, now: datetime, reason: str) -> None:
+        s.to(State.WATCHING, now, "CANCEL_" + reason)
+        self.events.append(SignalEvent("CANCELLED", s, now + timedelta(minutes=1), it, reason))
+
+    def _news_flatten(self, c: Candle, now: datetime) -> None:
+        """V8b: haber penceresi (olay ±w): bekleyen emirler iptal, açık pozisyonlar bu mumun açılışında piyasadan kapanır."""
+        for sid, s in list(self.pending.items()):
+            del self.pending[sid]
+            if s.state is State.ORDER_PENDING:
+                self.extra_stats["news_orders_cancelled"] += 1
+                self._cancel(s, s.intent, now, "NEWS_WINDOW")
+        for sid, tr in list(self.positions.items()):
+            if tr.fill_time == now or tr.position.closed:
+                continue
+            pos = tr.position
+            px = c.open if tr.intent.side is Side.LONG else c.open + self.spread       # long bid, short ask
+            for f in self.pm.force_close(pos, now, px, "NEWS_EXIT", "haber penceresi: açık pozisyon kapatıldı"):
+                tr.commission += self.commission.fee(f.lots, f.price)
+            pos.notes.append(f"NEWS_EXIT@{now.isoformat()}")
+            self.extra_stats["news_exits"] += 1
+            self._close(tr, now)
 
     def _fill_entry(self, s: Setup, it: OrderIntent, c: Candle, now: datetime) -> None:
         pos = self.pm.open(s.id, it.side, it.entry, it.stop, it.lots, it.plan, now)
@@ -186,7 +224,7 @@ class BacktestEngine:
         direction = Trend.BULL if it.side is Side.LONG else Trend.BEAR
         h4_ok = False
         if not entry_candle and any(l.name == H4_LEG and l.name not in pos._filled_legs for l in pos.plan.legs):
-            h4_ok = h4_choch_since(self.runner.struct[Timeframe.H4].events, direction, pos.opened_at)
+            h4_ok = h4_choch_since(self.runner.struct[self.runner.profile.hi].events, direction, pos.opened_at)
         fills = self.pm.on_candle(pos, c, now, h4_choch_confirmed=h4_ok, entry_candle=entry_candle)
         for f in fills:
             tr.commission += self.commission.fee(f.lots, f.price)
@@ -219,5 +257,5 @@ class BacktestEngine:
                     self.pending.pop(e.setup.id, None)
         return BacktestResult(self.pair, self.start, self.end, self.initial, self.runner.balance, self.closed,
                               list(self.positions.values()), self.events, self.commission,
-                              dict(self.pm.stats), self.runner.limit_report(), len(self.pending), self.n_candles, self.equity,
+                              {**self.pm.stats, **self.extra_stats}, self.runner.limit_report(), len(self.pending), self.n_candles, self.equity,
                               self.model.setups + self.model.archive, self.runner)

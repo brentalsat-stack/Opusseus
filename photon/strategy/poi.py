@@ -31,6 +31,8 @@ class POIParams:
     range_band_pct: Decimal
     range_tf: Timeframe
     require_liquidation: bool
+    poi_min_tf: Timeframe = Timeframe.M15       # POI TF tabanı (POI-R004#1): M1 profilinde ≥M15; V8'de ≥H4 (rol kayması)
+    nested_child_tf: Timeframe = Timeframe.M15  # "iç içe zon" kriterinde üst zon içinde aranan TF (V8: H4)
 
     def __post_init__(self) -> None:
         missing = [k for k in CRITERIA if k not in self.weights]
@@ -40,9 +42,12 @@ class POIParams:
     @classmethod
     def from_config(cls, cfg) -> "POIParams":
         cfg.require("poi_scoring", "liquidity")
+        from .profile import profile_from_config
+        prof = profile_from_config(cfg)
         w = {k: Decimal(str(v)) for k, v in cfg.get("poi_scoring.weights").items()}
         return cls(w, cfg.get("range_extreme_filter.enabled"), Decimal(str(cfg.get("range_extreme_filter.allowed_band_pct"))),
-                   Timeframe(cfg.get("range_extreme_filter.range_tf")), cfg.get("require_liquidation"))
+                   Timeframe(cfg.get("range_extreme_filter.range_tf")), cfg.get("require_liquidation"),
+                   prof.mid, prof.mid)
 
 
 @dataclass(frozen=True)
@@ -110,7 +115,7 @@ class POIResult:
 
 
 def _gates(z: Zone, ctx: POIContext, p: POIParams) -> tuple[Gate, ...]:
-    out = [Gate("tf_min_m15", z.tf.delta >= Timeframe.M15.delta, "" if z.tf.delta >= Timeframe.M15.delta else f"{z.tf.value} < M15",
+    out = [Gate("tf_min_m15", z.tf.delta >= p.poi_min_tf.delta, "" if z.tf.delta >= p.poi_min_tf.delta else f"{z.tf.value} < {p.poi_min_tf.value}",
                 "POI-R004#1"),
            Gate("structure_or_flip", z.valid, "" if z.valid else "zon yapı kırılımına neden olmadı ve flip değil", "SD-R005")]
     if p.range_filter_enabled:
@@ -169,7 +174,7 @@ def evaluate_poi(z: Zone, ctx: POIContext, p: POIParams) -> POIResult:
     earned = {
         "bos_and_flip": bool(z.is_flip and z.caused_events),
         "swing_break": z.caused_swing_bos,
-        "nested_zone": bool(ctx.nested_parents) and z.tf is Timeframe.M15,
+        "nested_zone": bool(ctx.nested_parents) and z.tf is p.nested_child_tf,
         "pro_trend": _pro_trend(ctx),
         "sweep_zone": z.is_sweep,
         "inducement": ctx.has_inducement,

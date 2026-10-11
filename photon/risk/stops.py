@@ -25,6 +25,10 @@ class ZoneBounds:
         """Fiyatın ilk dokunduğu dış kenar: talepte (long) üst, arzda (short) alt."""
         return self.top if side is Side.LONG else self.bottom
 
+    def proximal(self, side: Side) -> Decimal:
+        """Fiyatın ilk dokunduğu kenar (`distal()` ile aynı değer; ad karışıklığını gidermek için V8 kodunda bu kullanılır)."""
+        return self.distal(side)
+
     def extreme(self, side: Side) -> Decimal:
         """SL tarafındaki en uç fiyat: talepte alt, arzda üst."""
         return self.bottom if side is Side.LONG else self.top
@@ -51,10 +55,11 @@ class Rejected:
 @dataclass(frozen=True)
 class StopParams:
     pip_size: Decimal
-    entry_price_mode: str       # DISTAL | EQ | FIXED_SL
+    entry_price_mode: str       # DISTAL | EQ | FIXED_SL | FIB25_FROM_PROXIMAL | FIB25_FROM_DISTAL
     fixed_sl_pips: Decimal
     sl_buffer_pips: Decimal
     min_sl_pips: Decimal
+    fib_pct: Decimal = Decimal(25)   # V8 "%25 kuralı" (T-M15BT [00:10:42]); config anahtarı `fib_entry_pct`, yoksa 25
 
     @classmethod
     def from_config(cls, cfg, pair: str) -> "StopParams":
@@ -62,7 +67,8 @@ class StopParams:
         mode = cfg.get("entry_price_mode")
         fixed = cfg.get("fixed_sl_pips")
         return cls(cfg.pip_size(pair), mode, Decimal(str(fixed if fixed is not None else 0)),
-                   Decimal(str(cfg.get("sl_buffer_pips"))), Decimal(str(cfg.get("min_sl_pips"))))
+                   Decimal(str(cfg.get("sl_buffer_pips"))), Decimal(str(cfg.get("min_sl_pips"))),
+                   Decimal(str(cfg.get("fib_entry_pct") if cfg.get("fib_entry_pct") is not None else 25)))
 
 
 def stop_price(zone: ZoneBounds, side: Side, p: StopParams) -> Decimal:
@@ -81,6 +87,15 @@ def plan_entry(zone: ZoneBounds, side: Side, p: StopParams) -> Union[EntryPlan, 
         entry, stop = zone.distal(side), stop_price(zone, side, p)
     elif p.entry_price_mode == "EQ":
         entry = ((zone.top + zone.bottom) / 2).quantize(pip / 10)
+        stop = stop_price(zone, side, p)
+    elif p.entry_price_mode in ("FIB25_FROM_PROXIMAL", "FIB25_FROM_DISTAL"):
+        # V8 / Q-V8-2 (AMBIGUOUS): long "top 25%": giriş = proximal − f×(proximal−distal). Alternatif yorum FROM_DISTAL: distal'den f×yükseklik.
+        h, f = zone.top - zone.bottom, p.fib_pct / 100
+        if p.entry_price_mode == "FIB25_FROM_PROXIMAL":
+            entry = zone.top - f * h if side is Side.LONG else zone.bottom + f * h
+        else:
+            entry = zone.bottom + f * h if side is Side.LONG else zone.top - f * h
+        entry = entry.quantize(pip / 10)
         stop = stop_price(zone, side, p)
     elif p.entry_price_mode == "FIXED_SL":
         if (zone.top - zone.bottom) / pip < p.fixed_sl_pips:

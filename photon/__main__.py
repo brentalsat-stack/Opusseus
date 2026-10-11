@@ -66,6 +66,7 @@ def main(argv: list[str] | None = None) -> int:
     bc.add_argument("--variants", required=True, help="variants.yaml")
     bc.add_argument("--balance", help="başlangıç bakiyesi (verilmezse config backtest.initial_balance)")
     bc.add_argument("--out", default="backtest_compare")
+    bc.add_argument("--only", help="virgülle ayrılmış varyant adları (yalnız bunlar çalışır), örn. V0,V8a")
     bc.add_argument("--jobs", type=int, default=0, help="paralel süreç sayısı (0 = min(CPU, varyant sayısı); 1 = sırayla)")
     args = ap.parse_args(argv)
 
@@ -245,13 +246,27 @@ def _compare_cmd(cfg, args) -> int:
     from decimal import Decimal
     from pathlib import Path
 
-    from .backtest.compare import apply_overrides, format_compare, load_variants, run_compare, write_compare
+    from .backtest.compare import (CompareSpec, apply_overrides, format_compare, load_variants, missing_inputs, run_compare,
+                                   write_compare)
     from .data import tools
 
     cfg.require("backtest", "strategy", "management", "data_boundaries", "structure_warmup")
     spec = load_variants(args.variants)
+    if args.only:
+        want = [x.strip() for x in args.only.split(",") if x.strip()]
+        unknown = [x for x in want if x not in {v.name for v in spec.variants}]
+        if unknown:
+            print(f"bilinmeyen varyant: {unknown}", file=sys.stderr)
+            return 2
+        spec = CompareSpec([v for v in spec.variants if v.name in want], spec.vshape_n, spec.vshape_base, spec.detail)
     for v in spec.variants:                                   # hatalı override'ları çalıştırmadan önce yakala
         apply_overrides(cfg, v.overrides).require("backtest", "strategy", "management")
+    skipped = {v.name: why for v in spec.variants if (why := missing_inputs(v))}
+    if skipped:
+        print("UYARI atlanan varyantlar: " + "; ".join(f"{k} ({w})" for k, w in skipped.items()), file=sys.stderr)
+        spec = CompareSpec([v for v in spec.variants if v.name not in skipped], spec.vshape_n, spec.vshape_base, spec.detail)
+        if not spec.variants:
+            return 2
     source = args.source or cfg.get("data.backtest.primary")
     pair = args.pair or cfg.pairs[0]
     start, end = tools.day_range(args.start, args.end)
@@ -269,7 +284,7 @@ def _compare_cmd(cfg, args) -> int:
     print(f"{len(spec.variants)} varyant, {jobs} süreç ...")
     out = Path(args.out)
     results = run_compare(args.config, spec, source, pair, start, end, bal, out, jobs)
-    text = format_compare(results, spec, start, end, bal, source, pair)
+    text = format_compare(results, spec, start, end, bal, source, pair, skipped)
     print("\n" + text)
     paths = write_compare(results, spec, out, text)
     print("\nDosyalar: " + ", ".join(str(p) for p in paths.values()) + f"; varyant çıktıları: {out}/<ad>/")

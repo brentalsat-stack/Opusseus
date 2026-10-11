@@ -23,8 +23,10 @@ class Decision:
 
 class SessionClock:
     def __init__(self, session_tz: ZoneInfo, windows: list[tuple[time, time]], display_tz: ZoneInfo = ISTANBUL,
-                 blackout: Optional[tuple[ZoneInfo, time, time]] = None):
+                 blackout: Optional[tuple[ZoneInfo, time, time]] = None, session_gate: bool = True, news=None):
         self.tz, self.windows, self.display_tz, self.blackout = session_tz, windows, display_tz, blackout
+        self.session_gate = session_gate      # V8 [00:04:31]: False → seans penceresi kapısı yok (rollover yasağı yine geçerli)
+        self.news = news                      # V8b: NewsBlackout | None
 
     @classmethod
     def from_config(cls, cfg, with_blackout: bool = True) -> "SessionClock":
@@ -34,7 +36,10 @@ class SessionClock:
         if with_blackout:
             bo = (ZoneInfo(cfg.get("blackout.tz")), time.fromisoformat(cfg.get("blackout.start")),
                   time.fromisoformat(cfg.get("blackout.end")))
-        return cls(ZoneInfo(cfg.get("timezones.session")), wins, ZoneInfo(cfg.get("timezones.display")), bo)
+        gate = cfg.get("session_gate")
+        from ..signals.news_blackout import NewsBlackout
+        return cls(ZoneInfo(cfg.get("timezones.session")), wins, ZoneInfo(cfg.get("timezones.display")), bo,
+                   True if gate is None else bool(gate), NewsBlackout.from_config(cfg))
 
     def in_session(self, t: datetime) -> bool:
         """SS-R001."""
@@ -52,7 +57,9 @@ class SessionClock:
         """Yeni emir/sinyal için zaman filtresi (önce yasak pencere, sonra seans)."""
         if self.blackout is not None and self.in_blackout(t):
             return Decision(False, "BLACKOUT", "SS-R002")
-        if not self.in_session(t):
+        if self.news is not None and self.news.in_window(t):
+            return Decision(False, "NEWS_WINDOW", "V8-NEWS")
+        if self.session_gate and not self.in_session(t):
             return Decision(False, "OUT_OF_SESSION", "SS-R001")
         return Decision(True)
 

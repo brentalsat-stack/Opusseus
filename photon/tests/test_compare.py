@@ -19,7 +19,7 @@ UTC = timezone.utc
 
 def test_default_variants_file_matches_the_requested_set():
     spec = load_variants("variants.yaml")
-    assert [v.name for v in spec.variants] == ["V0", "V1", "V2", "V3", "V4", "V5", "V6"]
+    assert [v.name for v in spec.variants][:7] == ["V0", "V1", "V2", "V3", "V4", "V5", "V6"]
     ov = {v.name: v.overrides for v in spec.variants}
     assert ov["V0"] == {} and ov["V1"] == {"entry_price_mode": "DISTAL"} and ov["V2"] == {"entry_price_mode": "EQ"}
     assert ov["V3"] == {"fixed_sl_pips": 3} and ov["V4"] == {"fixed_sl_pips": 5}

@@ -190,7 +190,7 @@ MODULES: dict[str, ModuleSpec] = {
         R("account.currency", non_empty_str),
     ), depends_on=("risk",)),
     "risk_stops": ModuleSpec((  # SL-R001..R003, SD-R008, EN-R009
-        R("entry_price_mode", one_of("DISTAL", "EQ", "FIXED_SL")),
+        R("entry_price_mode", one_of("DISTAL", "EQ", "FIXED_SL", "FIB25_FROM_PROXIMAL", "FIB25_FROM_DISTAL")),
         R("fixed_sl_pips", num_ge(2), when=lambda c: c.get("entry_price_mode") == "FIXED_SL"),
         R("sl_buffer_pips", num_ge(0)),
     ), depends_on=("risk",)),
