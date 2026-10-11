@@ -12,7 +12,7 @@ from photon.risk.session import SessionClock
 from photon.risk.sizing import SizingParams
 from photon.risk.stops import Side, StopParams
 from photon.execution.management import ManagementParams
-from photon.strategy.entry_model import (EntryModel, EntryParams, MarketView, choose_entry_zone, double_bos, fill_touch,
+from photon.strategy.entry_model import (EntryModel, EntryParams, MarketView, choose_entry_zone, double_bos, reaction_box, fill_touch,
                                          first_target, visit_start)
 from photon.strategy.permission import TrendClass
 from photon.strategy.poi import POIParams
@@ -130,7 +130,7 @@ def test_t_en_05_choch_without_flip_uses_extreme_zone():
     with_zones(ze1, ch, flip=False)
     s, out, _ = run_path(em, ze1, m1s, states, poi, ze15, choch=ch)
     (sig,) = [e for e in out if e.kind == "SIGNAL"]
-    assert sig.intent.entry_zone_id == "ext" and sig.intent.entry_zone_kind == "EXTREME"
+    assert sig.intent.entry_zone_id.startswith("M1-V") and sig.intent.entry_zone_kind == "EXTREME"     # Q-Z11: V tepki kutusu (algılanan "ext" zon DEĞİL)
 
 
 def test_flip_requires_sweep_config_falls_back_to_extreme_if_flip_did_not_sweep():
@@ -149,12 +149,42 @@ def test_flip_requires_sweep_config_falls_back_to_extreme_if_flip_did_not_sweep(
     assert next(e for e in out2 if e.kind == "SIGNAL").intent.entry_zone_kind == "FLIP"
 
 
-def test_no_flip_and_no_extreme_aborts_with_reason():
+def test_q_z11_one_candle_choch_leg_without_any_m1_zone_still_produces_v_box_entry():
+    """M1 giriş kutusu zon algılamasına (SD-R001/R002) bağlı değildir: pencerede hiç M1 zonu olmasa da kutu çizilir."""
     em, ze15, ze1, m1s, states = build()
     ch = make_choch()
+    assert not ze1.zones
     s, out, _ = run_path(em, ze1, m1s, states, zone(caused_events=[bos()]), ze15, choch=ch)
-    assert [e.kind for e in out] == ["REJECTED"] and out[0].reason == "NO_ENTRY_ZONE"
-    assert s.state is State.WATCHING and s.rejections[-1].rule == "EN-R001/5"
+    sig = [e for e in out if e.kind == "SIGNAL"]
+    assert sig and sig[0].intent.entry_zone_kind == "EXTREME" and sig[0].intent.entry_zone_id.startswith("M1-V")
+    assert s.state is State.ORDER_PENDING and not any(r.reason == "NO_ENTRY_ZONE" for r in s.rejections)
+
+
+def _c(i, o, h, l, c):
+    from photon.data.models import Candle
+    f = lambda x: D(str(x))
+    return Candle("EURUSD", Timeframe.M1, T0 + timedelta(minutes=i), px(f(o)), px(f(h)), px(f(l)), px(f(c)), True)
+
+
+def test_q_z11_reaction_box_long_base_low_to_top_of_base_group_and_short_mirror():
+    # long: 0 yükseliş (pencere dışı), 1-2 ardışık bearish, 3 taban (bearish, en düşük low), 4 bullish CHoCH mumu
+    m1 = [_c(0, 10, 14, 9, 13), _c(1, 12, 13, 8, 9), _c(2, 9, 11, 6, 7), _c(3, 7, 8, 3, 4), _c(4, 4, 12, 4, 11)]
+    z = reaction_box(m1, 1, 4, Trend.BULL)
+    assert (z.bottom, z.top, z.kind, z.origin) == (px(3), px(13), ZoneKind.DEMAND, Origin.V_REACTION)    # üst = {1,2,3} grubunun en yüksek high'ı
+    assert z.first_index == 1 and z.created_index == 4
+    # pencere başlangıcı grubu keser: start=2 → mum 1 gruba girmez
+    z2 = reaction_box(m1, 2, 4, Trend.BULL)
+    assert (z2.bottom, z2.top) == (px(3), px(11))
+    # taban mumu bullish ise (iğne): yalnız kendisi + doğrudan öncesindeki bearish'ler
+    m2 = [_c(0, 10, 11, 8, 9), _c(1, 9, 12, 3, 11), _c(2, 11, 15, 10, 14)]
+    z3 = reaction_box(m2, 0, 2, Trend.BULL)
+    assert (z3.bottom, z3.top) == (px(3), px(12)) and z3.first_index == 0     # mum 0 bearish → gruba girer; high max(11,12)
+    # short simetrik
+    s1 = [_c(0, 10, 11, 7, 8), _c(1, 8, 9, 7, 8.5), _c(2, 8.5, 14, 8, 13), _c(3, 13, 20, 12, 19), _c(4, 19, 19, 9, 10)]
+    zs = reaction_box(s1, 1, 4, Trend.BEAR)
+    assert (zs.top, zs.bottom, zs.kind) == (px(20), px(7), ZoneKind.SUPPLY)
+    assert reaction_box(m1, 4, 3, Trend.BULL) is None                         # geçersiz pencere
+    assert reaction_box(m1, 4, 4, Trend.BULL) is not None                     # 1 mumluk bacak: CHoCH mumunun kendisi
 
 
 def test_t_en_06_sl_below_2_pip_rejects_entry():
@@ -422,7 +452,7 @@ def test_choose_entry_zone_picks_latest_flip_and_earliest_extreme():
     ze.zones += [f1, f2, e1, other]
     assert choose_entry_zone(ch, ze, False) == (f2, "FLIP")
     f2.is_sweep = f1.is_sweep = False
-    assert choose_entry_zone(ch, ze, True) == (e1, "EXTREME")
+    assert choose_entry_zone(ch, ze, True) == (None, "NONE")             # flip sweep almadı; algılanan "extreme" zon artık kullanılmaz (Q-Z11)
     ze.zones[:] = [other]
     assert choose_entry_zone(ch, ze, False) == (None, "NONE")
 

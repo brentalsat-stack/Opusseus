@@ -61,7 +61,7 @@ def test_t_ms_05_bos_by_close_and_box_rule():
     st = e.state()
     assert st.swing_low.price == px(12) and st.swing_low.index == 4 and st.swing_low.strength is Strength.STRONG  # box min [2..6]
     assert st.swing_high.price == px(45) and not st.swing_high.confirmed and st.swing_high.strength is Strength.WEAK
-    assert st.eq is None
+    assert st.eq == st.swing_low.price + (px(45) - st.swing_low.price) / 2     # Q-S06 güncellemesi: onaysız uçta da aralık/EQ
 
 
 def test_t_ms_04_wick_above_close_inside_is_not_bos():

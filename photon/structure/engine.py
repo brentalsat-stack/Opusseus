@@ -414,7 +414,7 @@ class StructureEngine:
             else:
                 sl = self._point(Kind.LOW, r.price, r.index, Strength.WEAK, r.confirmed)
                 sh = self._point(Kind.HIGH, sp, si, Strength.STRONG, True)
-            if r.confirmed:   # Q-S06: P/D aralığı AMBIGUOUS; yalnız onaylı swing aralığında EQ verilir
+            if sh.price > sl.price:   # Q-S06 GÜNCELLEME (kullanıcı kararı): uç onaysız olsa da aralık = strong uç ↔ BOS sonrası ulaşılan en uç (MS-R007 kutu)
                 eq = sl.price + (sh.price - sl.price) / 2
         ih = il = None
         if self.iref is not None:

@@ -30,7 +30,7 @@ Yapı yalnızca kapanmış mumlarla güncellenir. Bearish mantık, bullish mant�
 | Q-S03 | KARAR | Aday yoksa referans değişmez / CHoCH sonrası referans boş kalabilir (log uyarısı). |
 | Q-S04 | KARAR | Outside bar sırası alt TF ile çözülür: `SubTfResolver` (M15→M1; aynı dakikada ikisi de → tick; M1→tick). HistData'da tick yok → aynı dakikada ikisi de kırılırsa çözülemez. Alt veri yoksa/çözülemezse **`OUTSIDE_BAR` olayı (sinyal yok)**; "CHoCH önce" varsayımı kaldırıldı. |
 | Q-S05 | KARAR | Tek BOS. Çift BOS kodlanmadı (`NotImplementedError`). |
-| Q-S06 | KARAR | P/D onaylı swing aralığından; uç onaysızsa P/D bilinmiyor (`structure/pd.py`). |
+| Q-S06 | KARAR (**kullanıcı kararıyla GÜNCELLENDİ**, gerçek veri teşhisi: `range_filter` 25 elemenin 13'ü RANGE_UNKNOWN) | Range = swing aralığı. Trend yönündeki uç onaysızsa kutu kuralı (MS-R007): BULL strong low → BOS sonrası ulaşılan en yüksek high; BEAR simetrik. PD-R001 ve PD-R003 bunu kullanır (`pd.swing_range`, `MarketState.eq`). Swing hiç yoksa (warm-up başı/UNDEFINED) RANGE_UNKNOWN kalır. Testler: `test_pd_from_market_state_unconfirmed_extreme_*`, `test_unconfirmed_extreme_uses_box_rule_range_q_s06_update`, `test_range_unknown_only_without_any_swing_*`. |
 | Q-S07 | KARAR (kullanıcı kararı) | MS-R008'in iki yönlü bootstrap uygulaması (aşağıda). |
 | Q-S08 | KARAR | Çözülemeyen outside bar'da iç yapı değişmez, sinyal yok. |
 

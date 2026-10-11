@@ -1,6 +1,6 @@
 """Premium / Discount (PD-R001, FM-08). PD-R003 (range filtresi) Aşama 4'te.
 
-Q-S06 (AMBIGUOUS: swing mi internal mi?) — uygulanan: TF'nin ONAYLI swing aralığı [swing_low, swing_high].
+Q-S06 (AMBIGUOUS: swing mi internal mi?) — uygulanan: TF'nin swing aralığı (uç onaysızsa MS-R007 kutu ucu; kullanıcı kararı) [swing_low, swing_high].
 Onaysız uçta aralık değişebileceğinden P/D bilinmez (None). Internal aralık üretilmez.
 """
 from __future__ import annotations
@@ -33,10 +33,12 @@ def classify(price: Decimal, low: Decimal, high: Decimal) -> PD:
 
 
 def swing_range(state: MarketState) -> Optional[tuple[Decimal, Decimal]]:
-    """Onaylı swing aralığı (low, high); yoksa None (Q-S06)."""
+    """Swing aralığı (low, high). Q-S06 GÜNCELLEMESİ (kullanıcı kararı): trend yönündeki uç henüz onaylanmamışsa (MS-R008 eşiği
+    geçilmedi) aralık = kutu kuralındaki (MS-R007) strong uç ↔ BOS sonrası ulaşılan en uç (BULL: strong low → en yüksek high;
+    BEAR: strong high → en düşük low). Swing hiç yoksa (warm-up başı / UNDEFINED) None → RANGE_UNKNOWN."""
     if state.swing_trend is Trend.UNDEFINED or state.swing_high is None or state.swing_low is None:
         return None
-    if not (state.swing_high.confirmed and state.swing_low.confirmed):
+    if state.swing_high.price <= state.swing_low.price:
         return None
     return state.swing_low.price, state.swing_high.price
 

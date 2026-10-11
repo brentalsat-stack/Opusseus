@@ -51,3 +51,8 @@ elemelerinde M15 range low/high (+zaman), zon EQ ve yüzde; `NO_ENTRY_ZONE`'da C
 - **Q-B3** Journal: backtest yalnızca kapıları geçmiş işlem açtığı için hepsi VALID. INVALID işlem tanımı (örn. reddedilen sinyallerin varsayımsal sonucu) kaynakta yok → eklenmedi. Ret nedenleri sayı olarak raporlanır.
 - **Q-B4** Dönem sonunda açık kalan pozisyonlar istatistiğe dahil edilmez, ayrıca sayılır. Bakiye/drawdown yalnızca kapanışlarda ölçülür (açık işlem dalgalanması yok).
 - Kapsam dışı (henüz yapılmadı): config varyantı karşılaştırma modu, MS-R010 M1 swing eşik kalibrasyonu, eğitmen videosu ile referans karşılaştırması.
+
+## Gerçek veri teşhisi sonrası değişiklikler (Eylül 2021, kullanıcı kararları)
+- **Q-Z11** M1 giriş kutusu zon algılamasından bağımsız V tepki kutusu (bkz. `photon/strategy/README.md`). Bu, önceki backtest sonuçlarını DEĞİŞTİRİR (NO_ENTRY_ZONE elemeleri artık sinyale ilerler).
+- **Q-S06 güncellemesi** onaysız uçta MS-R007 kutu aralığı → `RANGE_UNKNOWN` yalnız swing yokken. Bu da `range_filter`/`pd_alignment` sonuçlarını değiştirir.
+- Lookahead şüphesi: kabul edildi (sinyal = mum kapanışı, dolum sonraki mum).

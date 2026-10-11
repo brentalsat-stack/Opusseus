@@ -28,6 +28,7 @@ class Origin(str, Enum):
     PIVOT = "PIVOT"      # STB / BTS (SD-R002)
     RANGE = "RANGE"      # ≥3 mum inside-bar zinciri (SD-R001, kullanıcı tanımı)
     FLIP = "FLIP"        # failed reaction sonrası reaksiyon kutusu (SD-R006, EN-R009)
+    V_REACTION = "V_REACTION"   # M1 giriş kutusu: mitigasyondan CHoCH'a V tepkisinin tabanı→tepesi (T-QA, Q-Z11; zon algılamasına bağlı DEĞİL)
 
 
 class Context(str, Enum):

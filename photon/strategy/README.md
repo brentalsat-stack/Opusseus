@@ -55,3 +55,12 @@ Q-E7  Birden çok flip: en son doğan; extreme = bağlı yapısal zonlardan en e
 Q-E9  Karar M1 mum KAPANIŞINDA; seans/kilit kapanış anına göre; mitigasyon = mumun zonla kesişmesi (eşitlik dahil).
 Q-S10 M1 iç-yapı motoru cold start: MS-R002 adayları iki yönde izlenir, ilk wick kırılımı yönü + referansı belirler.
 ```
+
+
+## Q-Z11 — M1 giriş kutusu (kullanıcı kararı, gerçek veri teşhisi sonrası)
+Sapma: DECISIONS §3 "M1 giriş kutusu = reaksiyon tabanı→tepesi" (T-QA); önceki kod M1'de SD-R001/R002 zon algılamasına bağlıydı → `NO_ENTRY_ZONE` 23/23 (CHoCH bacağı medyan 1 mum, pencerede zon yok).
+Şimdi: CHoCH'a neden olan **flip** zonu varsa öncelik (EN-R008, `decisional_flip_requires_sweep` kuralı aynı); yoksa `reaction_box()` doğrudan V tepkiden çizer — zon algılaması şartı YOK:
+- Long: alt = mitigasyondan (`visit_start`) M1 CHoCH mumuna (dahil) kadarki en düşük low (ilk yapan mum = taban mumu); üst = taban mumu + onu doğrudan öncesindeki ardışık bearish mumların en yüksek high'ı. Short simetrik.
+- `entry_zone_kind` hâlâ `EXTREME`; zon kimliği `M1-V<break_index>-D|S`, `Origin.V_REACTION`.
+- `NO_ENTRY_ZONE` yalnız geçersiz pencerede (başlangıç > bitiş) oluşabilir.
+**Açık (Q-Z11a):** "tabanı oluşturan ardışık karşı yönlü mumlar" kaynakta ölçülemez; uygulanan: taban mumu (rengi önemsiz) + doğrudan öncesindeki kesintisiz karşı renkli mumlar, pencere (mitigasyon) başında kesilir. Taban mumu CHoCH mumunun kendisiyse (1 mumluk bacak) kutu o mumun (+öncesi bearish'ler) aralığıdır; bu geniş olabilir (stop buna göre uzar). Test: `test_q_z11_*`.

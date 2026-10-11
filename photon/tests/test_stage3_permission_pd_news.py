@@ -74,14 +74,18 @@ def test_pd_alignment():
     assert PD.aligned(B, PD.PD.EQ) is False and PD.aligned(B, None) is None
 
 
-def test_pd_from_market_state_confirmed_range_only():
+def test_pd_from_market_state_unconfirmed_extreme_uses_box_range_q_s06_update():
     from photon.tests.test_structure import UP, UP_SEED, bar, bars, px, params, engine
     e = engine(bars(UP), UP_SEED)
     st = e.state()
     assert PD.swing_range(st) == (px(0), px(40))
     assert PD.classify_state(st, px(10)) is PD.PD.DISCOUNT and PD.classify_state(st, px(30)) is PD.PD.PREMIUM
-    e.update(bar(6, 45, 30, c=42))                    # BOS → yeni uç onaysız → P/D bilinmez (Q-S06)
-    assert PD.swing_range(e.state()) is None and PD.classify_state(e.state(), px(10)) is None
+    e.update(bar(6, 45, 30, c=42))                    # BOS → yeni uç onaysız → range = strong low ↔ BOS sonrası en yüksek high (kullanıcı kararı)
+    st2 = e.state()
+    assert not st2.swing_high.confirmed
+    assert PD.swing_range(st2) == (st2.swing_low.price, st2.swing_high.price) and st2.swing_high.price == px(45)
+    assert st2.eq == st2.swing_low.price + (px(45) - st2.swing_low.price) / 2
+    assert PD.classify_state(st2, st2.swing_low.price) is PD.PD.DISCOUNT
     cold = StructureEngine(Timeframe.H4, params())
     assert PD.swing_range(cold.state()) is None
 

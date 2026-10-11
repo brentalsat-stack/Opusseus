@@ -30,7 +30,7 @@ def px(p) -> D:
 def state(tf, trend, low=0, high=100, confirmed=True):
     sl = SwingPoint(tf, px(low), 0, Kind.LOW, Strength.STRONG if trend is B else Strength.WEAK, True)
     sh = SwingPoint(tf, px(high), 5, Kind.HIGH, Strength.WEAK if trend is B else Strength.STRONG, confirmed)
-    eq = px((low + high) / 2) if confirmed else None
+    eq = px((low + high) / 2)           # Q-S06 güncellemesi: uç onaysız olsa da aralık/EQ vardır
     return MarketState(tf, trend, sh, sl, trend, None, None, eq)
 
 
@@ -136,13 +136,27 @@ def test_range_filter_quarter_bands(eq_pips, direction, passed, reason):
     assert (r.passed, r.reason) == (passed, reason)
 
 
-def test_range_unknown_fails_closed_and_can_be_disabled():
+def nostate(tf):
+    return MarketState(tf, Trend.UNDEFINED, None, None, Trend.UNDEFINED, None, None, None)
+
+
+def test_unconfirmed_extreme_uses_box_rule_range_q_s06_update():
+    """Kullanıcı kararı: uç onaysızsa range = strong low → BOS sonrası ulaşılan en yüksek high (MS-R007); filtre bunu kullanır."""
     unconf = state(Timeframe.M15, B, confirmed=False)
-    z = zone(caused_events=[ev()])
+    z = zone(caused_events=[ev()], top=51, bottom=49)                                    # range ortası
     r = evaluate_poi(z, ctx(states={Timeframe.M15: unconf, Timeframe.H4: state(Timeframe.H4, B)}), PARAMS)
+    assert not gate(r, "range_filter").passed and "MIDDLE_OF_RANGE" in gate(r, "range_filter").reason
+    low = zone(caused_events=[ev()], top=6, bottom=4)
+    assert gate(evaluate_poi(low, ctx(states={Timeframe.M15: unconf, Timeframe.H4: state(Timeframe.H4, B)}), PARAMS), "range_filter").passed
+
+
+def test_range_unknown_only_without_any_swing_fails_closed_and_can_be_disabled():
+    none = nostate(Timeframe.M15)
+    z = zone(caused_events=[ev()])
+    r = evaluate_poi(z, ctx(states={Timeframe.M15: none, Timeframe.H4: state(Timeframe.H4, B)}), PARAMS)
     assert not gate(r, "range_filter").passed and "RANGE_UNKNOWN" in gate(r, "range_filter").reason
     off = POIParams(PARAMS.weights, False, D(25), Timeframe.M15, True)
-    assert gate(evaluate_poi(z, ctx(states={Timeframe.M15: unconf, Timeframe.H4: state(Timeframe.H4, B)}), off), "range_filter").passed
+    assert gate(evaluate_poi(z, ctx(states={Timeframe.M15: none, Timeframe.H4: state(Timeframe.H4, B)}), off), "range_filter").passed
 
 
 def test_range_filter_uses_configured_range_tf_state():
@@ -164,7 +178,7 @@ def test_pd_alignment_requires_both_m15_and_h4_and_unknown_gives_none():
     assert earned(evaluate_poi(z, ctx(), PARAMS), "pd_alignment") is True
     h4_premium = ctx(states={Timeframe.M15: state(Timeframe.M15, B), Timeframe.H4: state(Timeframe.H4, B, 0, 15)})   # EQ 7.5 < 10 → premium
     assert earned(evaluate_poi(z, h4_premium, PARAMS), "pd_alignment") is False
-    unk = ctx(states={Timeframe.M15: state(Timeframe.M15, B, confirmed=False), Timeframe.H4: state(Timeframe.H4, B)})
+    unk = ctx(states={Timeframe.M15: nostate(Timeframe.M15), Timeframe.H4: state(Timeframe.H4, B)})
     assert earned(evaluate_poi(z, unk, PARAMS), "pd_alignment") is None
 
 

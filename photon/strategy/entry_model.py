@@ -27,7 +27,7 @@ from ..structure.engine import StructureEngine
 from ..structure.pd import swing_range
 from ..structure.models import EventType, MarketState, StructureEvent, Trend
 from ..zones.engine import ZoneEngine
-from ..zones.models import Zone, ZoneKind
+from ..zones.models import Origin, Zone, ZoneKind
 from ..zones.refine import nested_parents, refined_zones
 from .permission import TrendClass, check_permission, classify_trend, m15_choch_after_mitigation
 from .poi import POIContext, POIParams, POIResult, evaluate_poi
@@ -143,6 +143,7 @@ def _range_detail(view: "MarketView", poi_p: POIParams, s: Setup) -> str:
     if r is None:
         return " range=None"
     return (f" range_tf={poi_p.range_tf.value} range_low={r[0]}@idx{st.swing_low.index} range_high={r[1]}@idx{st.swing_high.index} "
+            f"range_extreme_confirmed={(st.swing_low if st.swing_trend is Trend.BEAR else st.swing_high).confirmed} "
             f"zone_eq={s.poi.eq} poi={s.poi.id} poi_tf={s.poi.tf.value} m15_trend={st.swing_trend.value}")
 
 
@@ -180,19 +181,38 @@ def double_bos(m15_events: Sequence[StructureEvent], direction: Trend) -> bool:
 
 
 def choose_entry_zone(choch: StructureEvent, ze: ZoneEngine, requires_sweep: bool) -> tuple[Optional[Zone], str]:
-    """EN-R001 adım 5 / EN-R008 (DECISIONS: sweep yoksa da flip zonundan gir; EXTREME seçeneği = decisional_flip_requires_sweep).
-    CHoCH'a neden olan zonlar (Q-Z5 bağlaması): flip zonu varsa (en son doğan) onu; yoksa (veya sweep şartı varken flip sweep almadıysa)
-    extreme = CHoCH bacağının başladığı yerde doğan yapısal zon. İkisi de yoksa (None, 'NONE')."""
-    caused = [z for z in ze.zones if any(e is choch for e in z.caused_events)]
-    flips = [z for z in caused if z.is_flip]
-    extremes = [z for z in caused if not z.is_flip]
+    """EN-R001 adım 5 / EN-R008: CHoCH'a neden olan FLIP zonu varsa (en son doğan; `decisional_flip_requires_sweep` ise sweep almış olmalı)
+    onu seçer. Aksi halde (None, 'NONE') döner ve çağıran V tepki kutusunu çizer (`reaction_box`, Q-Z11): M1 giriş kutusu
+    SD-R001/R002 zon algılamasına bağlı değildir (DECISIONS §3: M1 giriş kutusu = reaksiyon tabanı→tepesi)."""
+    flips = [z for z in ze.zones if z.is_flip and any(e is choch for e in z.caused_events)]
     if flips:
         f = max(flips, key=lambda z: z.created_index)
         if not requires_sweep or ze.sweep_flag(f):
             return f, "FLIP"
-    if extremes:
-        return min(extremes, key=lambda z: z.created_index), "EXTREME"
     return None, "NONE"
+
+
+def reaction_box(m1: Sequence[Candle], start: int, end: int, direction: Trend) -> Optional[Zone]:
+    """Q-Z11 (kullanıcı tanımı): mitigasyondan (start) M1 CHoCH mumuna (end, dahil) kadarki V tepkisinin giriş kutusu.
+    Long: alt = penceredeki en düşük low (ilk yapan mum = taban mumu); üst = taban mumu ile onu doğrudan öncesindeki ardışık
+    karşı yönlü (bearish) mumların en yüksek high'ı. Short simetrik (en yüksek high; üst/alt ters; karşı yönlü = bullish)."""
+    if end < start or start < 0 or end >= len(m1):
+        return None
+    long = direction is Trend.BULL
+    idx = range(start, end + 1)
+    base = min(idx, key=lambda i: (m1[i].low, i)) if long else max(idx, key=lambda i: (m1[i].high, -i))
+    first = base
+    while first - 1 >= start and ((m1[first - 1].close < m1[first - 1].open) if long else (m1[first - 1].close > m1[first - 1].open)):
+        first -= 1
+    grp = m1[first:base + 1]
+    if long:
+        top, bottom = max(c.high for c in grp), m1[base].low
+        kind = ZoneKind.DEMAND
+    else:
+        top, bottom = m1[base].high, min(c.low for c in grp)
+        kind = ZoneKind.SUPPLY
+    return Zone(f"M1-V{end}-{kind.value[0]}", Timeframe.M1, kind, Origin.V_REACTION, "REACTION", top, bottom, first, end,
+                m1[end].open_time)
 
 
 def fill_touch(side: Side, entry: Decimal, c: Candle, spread: Decimal) -> bool:
@@ -369,14 +389,17 @@ class EntryModel:
         t = view.now
         ze1 = view.m1_zones
         zone, kind = choose_entry_zone(choch, ze1, self.p.decisional_flip_requires_sweep)
+        if zone is None:                                     # Q-Z11: flip yoksa V tepki kutusu (zon algılamasından bağımsız)
+            zone = reaction_box(view.m1, s.visit_start, choch.break_index, s.direction)
+            kind = "EXTREME" if zone is not None else "NONE"
         s.to(State.ENTRY_READY, t, f"CHOCH:{choch.time:%H:%M}")
         s.log(t, "CHOCH", f"choch_time={choch.time.isoformat()} level={choch.level} origin_index={choch.origin_index} "
                           f"break_index={choch.break_index} leg_len={choch.break_index - choch.origin_index}")
         if zone is None:
             s.log(t, "NO_ENTRY_ZONE", _window_zones(ze1, choch))
-            return self._abort(s, t, "NO_ENTRY_ZONE", "EN-R001/5", "CHoCH'a neden olan flip veya extreme zon yok")
+            return self._abort(s, t, "NO_ENTRY_ZONE", "EN-R001/5", "flip yok ve V tepki kutusu çizilemedi (geçersiz pencere)")
         s.entry_zone, s.entry_zone_kind = zone, kind
-        s.log(t, "ENTRY_ZONE_OK", f"{kind} {zone.id}")
+        s.log(t, "ENTRY_ZONE_OK", f"{kind} {zone.id} top={zone.top} bottom={zone.bottom}")
         liq = s.liquidation
         vshape = v_shape_exit(s.visit_start, choch.break_index, self.p.v_shape_max_candles)
         return self._finalize(s, view, zone, kind, liq, vshape)

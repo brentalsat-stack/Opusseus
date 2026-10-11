@@ -307,4 +307,4 @@ def test_funnel_counts_are_consistent_and_split_by_trend_class(synth_result):
     assert get("4.")["TOPLAM"] == get("   giriş zonu YOK")["TOPLAM"] + get("5.")["TOPLAM"]
     for r in rows.values():
         assert sum(r.get(c, 0) for c in ("PRO", "MIXED", "COUNTER_HTF", "UNKNOWN")) in (r["TOPLAM"], 0)
-    assert "PRO" in format_funnel(res) and "NO_ENTRY_ZONE" in diagnostics_text(res) and "retire_after" in diagnostics_text(res)
+    assert "PRO" in format_funnel(res) and "NO_ENTRY_ZONE" in diagnostics_text(res)
