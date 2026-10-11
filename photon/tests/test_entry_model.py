@@ -11,6 +11,7 @@ from photon.risk.limits import DayLossTracker
 from photon.risk.session import SessionClock
 from photon.risk.sizing import SizingParams
 from photon.risk.stops import Side, StopParams
+from photon.execution.management import ManagementParams
 from photon.strategy.entry_model import (EntryModel, EntryParams, MarketView, choose_entry_zone, double_bos, fill_touch,
                                          first_target, visit_start)
 from photon.strategy.permission import TrendClass
@@ -67,7 +68,7 @@ def build(entry_type="CONFIRMATION", dup="REJECT", opp="REJECT", stop_mode=None,
     if stop_mode:
         sp = StopParams(sp.pip_size, stop_mode, sp.fixed_sl_pips, sp.sl_buffer_pips, sp.min_sl_pips)
     em = EntryModel("EURUSD", ep, POIParams.from_config(CFG), sp, SizingParams.from_config(CFG, "EURUSD"),
-                    SessionClock.from_config(CFG), tracker or DayLossTracker.from_config(CFG), news)
+                    SessionClock.from_config(CFG), tracker or DayLossTracker.from_config(CFG), ManagementParams.from_config(CFG), news)
     st15 = StructureEngine(Timeframe.M15, StructureParams(PIP, D(15), True, 2))
     ze15 = ZoneEngine(Timeframe.M15, ZoneParams(PIP, "CANDLE", 3, D(2), D(2)), st15)
     m1s = StructureEngine(Timeframe.M1, StructureParams.internal_only_params(PIP))

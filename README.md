@@ -103,6 +103,11 @@ Doğrulama: `python -m photon zones --tf M15 --start 2021-09-01 --end 2021-09-30
 `photon/strategy/{state_machine,entry_model,runner}.py`. Akış, kural→kod→test tablosu ve **açık sorular (Q-E1..Q-E9)**: `photon/strategy/README.md`.
 Strateji kapısı iki karar bekliyor: `duplicate_signal_policy`, `opposite_signal_policy` (config'te `REQUIRED`).
 
+### Aşama 6 (pozisyon yönetimi + sinyal çıktısı)
+
+`photon/execution/{management,position}.py`, `photon/signals/output.py`. Hacim dağılımları, kural→kod→test tablosu ve **açık sorular (Q-M1..Q-M5)**: `photon/execution/README.md`.
+Giriş modelindeki Q-E8 (bekleme) kararı: `photon/strategy/README.md`.
+
 ### Açık sorular
 
 - Kalan `REQUIRED`: `swing_min_pullback_pips.EURUSD.M1` (kalibrasyon), `v_shape_metric` (Aşama 4).

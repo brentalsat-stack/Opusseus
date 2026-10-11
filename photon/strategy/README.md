@@ -35,41 +35,23 @@ Warm-up (`live_from` öncesi) kurulumlar ilerlemez ve sinyal üretilmez.
 | MTF toplayıcı, runner | `runner.py` | `test_runner.py` |
 
 ---
-# BU AŞAMADA SİZE SORULANLAR (kodlanmadı / karar bekliyor)
+# KARARLAR (kullanıcı onaylı) ve kalan açık sorular
+
+| ID | Karar | Uygulama |
+|---|---|---|
+| **Q-E8** | **(b) — KULLANICI KARARI** | İzin reddinde kurulum `POI_MITIGATED`'da BEKLER (WATCHING'e dönmez). POI geçersizleşene (invalidation) kadar her M1 mumunda izin (EN-R006 + Q-P1 M15 CHoCH, EN-R007 çift BOS) yeniden değerlendirilir; açılınca `CONFIRMATION_PENDING` → M1 giriş araması sürer. Bekleme süresince limit sinyal YOK. **§17 tablosunda "izin yok → WATCHING" satırı bu karara göre değişti** (`state_machine.py` yorumu + `Setup.wait_reason`). Testler: `test_q_e8_*`. |
+| Q-E5 | REJECT | `duplicate_signal_policy: REJECT` — bir POI = en fazla bir aktif sinyal (T-DUP-01). |
+| Q-E6 | REJECT | `opposite_signal_policy: REJECT`. |
+| Q-E1/Q-E2/Q-E7/Q-E9 | kabul | Aşağıdaki metinler aynen geçerli. |
+| Q-E3 | kabul | RISK girişinde liquidation kapısı yok (varsayılan giriş CONFIRMATION). |
+| Q-E4 | kabul | DOUBLE_CONFIRMATION (ve `BE_AT_FIRST_EXEC_BOS`) M1 swing eşiği kalibre edilene kadar devre dışı (`NotImplementedError`). |
+| Q-L3 | kabul | 48 saat / 1 gün / 60 mum sınırları; **elenen durum sayıları** `StrategyRunner.limit_report()` ile raporlanır (backtest raporuna girecek): `liquidation_window_capped(_no_sweep)`, `zones_*_retired(_valid)`, `zones_*_range_lookback_exhausted`. |
 
 ```text
-ID: Q-E5  TÜR: IMPLEMENTATION DECISION REQUIRED  İLGİLİ KURAL: FINAL_SPEC §19, T-DUP-01
-KONUM: config `duplicate_signal_policy` (REQUIRED) — strateji kapısı kapalı
-AÇIKLAMA: Aynı POI için ikinci sinyal (aktif = ORDER_PENDING/POSITION_OPEN/RISK_FREE kurulum varken).
-SEÇENEKLER (kodlu): REJECT (ikinciyi reddet, raporla — FINAL_SPEC T-DUP-01 varsayılanı) | REPLACE (bekleyen eskiyi iptal et, yenisini ver;
-  açık pozisyon varsa reddedilir) | ALLOW (ikisi de). Önerim: REJECT.
-
-ID: Q-E6  TÜR: IMPLEMENTATION DECISION REQUIRED  İLGİLİ KURAL: FINAL_SPEC §19
-KONUM: config `opposite_signal_policy` (REQUIRED)
-AÇIKLAMA: Açık/bekleyen bir sinyal varken karşıt yönlü yeni sinyal (hedge yalnız EXAMPLE_ONLY).
-SEÇENEKLER: REJECT | ALLOW. Önerim: REJECT.
-
-ID: Q-E8  TÜR: IMPLEMENTATION DECISION REQUIRED  İLGİLİ KURAL: EN-R006 + Q-P1 (kullanıcı kararı)
-AÇIKLAMA: İzin yoksa kurulum WATCHING'e döner (§17) ve izin YALNIZCA fiyat POI içindeyken (aynı dokunuşun sonraki mumlarında) yeniden
-  değerlendirilir. Q-P1 gereği M15 CHoCH mitigasyondan SONRA gelir; çoğu zaman fiyat POI'yi terk ettikten sonra oluşur → o ziyaret için
-  sinyal kaçırılır, kurulum yeni dokunuşu bekler.
-SEÇENEKLER: (a) bugünkü (yeni dokunuş) | (b) izin reddi sonrası kurulum "POI_MITIGATED bekleme" durumunda kalsın; M15 CHoCH gelince (POI
-  geçersiz olmadıkça, seans içinde) CONFIRMATION_PENDING'e geçsin. Önerim: (b), ama §17 tablosundaki "izin yok → WATCHING" satırını değiştirir.
-
-ID: Q-E1  TÜR: AMBIGUOUS  İLGİLİ KURAL: EN-R007 / D-15 — "M15'te çift BOS (HH+HL)": işlem yönünde ARDIŞIK ≥2 M15 BOS, karşı yönlü son
-  BOS'tan beri (zaman bağı yok; warm-up BOS'ları da yapıdır ve sayılır).
-ID: Q-E2  TÜR: UNDEFINED  İLGİLİ KURAL: DECISIONS §7 "ilk hedef" — İptal kuralı için ilk hedef: PRO/MIXED → M15 swing ucu (trend yönünde, girişin ötesinde);
-  COUNTER_HTF → bir sonraki M15 S&D zonunun yakın kenarı veya M15 swing ucundan girişe en yakın olan. Hedef yoksa iptal kuralı uygulanmaz.
-  (Aşama 6 hedef listesiyle birleşecek.)
-ID: Q-E3  TÜR: UNDEFINED  İLGİLİ KURAL: EN-R002 RISK girişi — HTF POI'ye doğrudan limit; liquidation kapısı uygulanamaz (kapalı), EN-R006 izni
-  "fiyat POI'de" varsayımıyla değerlendirilir, fiyat girişe zaten ulaşmışsa yerleştirilmez. İleride test (DECISIONS §4).
-ID: Q-E4  TÜR: IMPLEMENTATION DECISION REQUIRED  İLGİLİ KURAL: EN-R002 DOUBLE_CONFIRMATION — ikinci M1 BOS gerekir; M1 swing eşiği henüz yok
-  (DECISIONS §2: M1 swing yalnız double-confirmation testinde, kalibrasyondan sonra). Seçilirse NotImplementedError.
-ID: Q-E7  TÜR: AMBIGUOUS  İLGİLİ KURAL: EN-R008 — Birden çok flip zonu aynı CHoCH'a bağlıysa EN SON doğan; extreme = bağlı yapısal zonlardan en erken doğan.
-ID: Q-E9  TÜR: UNDEFINED — Zamanlama: sinyal/karar M1 mumunun KAPANIŞINDA verilir; seans/kilit kontrolü kapanış anına göre (10:00'da kapanan 09:59 mumu
-  seans dışı). Mitigasyon, mumun POI/rafine zonla kesişmesidir (eşitlik dahil).
-ID: Q-L3  TÜR: IMPLEMENTATION LIMITS (strateji parametresi değil): liquidation seviye penceresi en fazla 2880 M1 (48 sa); M1 zonları 1440 mumdan
-  eskiyse izlenmez; range zincir araması geriye en fazla 60 mum (önceki 200). Hız için; davranış etkisi yalnızca bu eşiklerin ötesinde.
-ID: Q-S10  TÜR: UNDEFINED — M1 iç-yapı motoru (internal_only) için cold start: MS-R002 adayları iki yönde izlenir, ilk wick kırılımı yönü ve
-  referansı belirler (MS-R003). Swing/BOS yok.
+Q-E1  Çift BOS = M15'te işlem yönünde ARDIŞIK ≥2 BOS, karşı yönlü son BOS'tan beri (warm-up BOS'ları da sayılır).
+Q-E2  İlk hedef (iptal kuralı): PRO/MIXED → M15 swing ucu; COUNTER_HTF → sonraki M15 S&D zonu yakın kenarı veya M15 swing'den girişe yakın olan.
+      (Aşama 6 ile birleşti: iptal fiyatı = `TargetPlan.first_target`.)
+Q-E7  Birden çok flip: en son doğan; extreme = bağlı yapısal zonlardan en erken doğan.
+Q-E9  Karar M1 mum KAPANIŞINDA; seans/kilit kapanış anına göre; mitigasyon = mumun zonla kesişmesi (eşitlik dahil).
+Q-S10 M1 iç-yapı motoru cold start: MS-R002 adayları iki yönde izlenir, ilk wick kırılımı yönü + referansı belirler.
 ```

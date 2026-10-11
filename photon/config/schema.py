@@ -252,6 +252,7 @@ MODULES: dict[str, ModuleSpec] = {
         R("target_allocation.counter_trend.allocation_pct", pct_0_100),
         R("target_allocation.range.allocation_pct", pct_0_100),
         R("target_allocation.mixed.same_as", one_of("pro_trend")),
+        R("swing_hold_confirmation", one_of("H4_TREND_CHANGE", "H4_CHOCH", "M15_CHOCH")),
     ), depends_on=("risk",)),
     "news": ModuleSpec((  # DECISIONS §6: engellemez, uyarı notu
         R("news_filter.mode", one_of("WARN_ONLY")),

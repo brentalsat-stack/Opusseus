@@ -15,6 +15,7 @@ from decimal import Decimal
 from typing import Mapping, Optional, Sequence, Union
 
 from ..data.models import Candle, Timeframe
+from ..execution.management import ManagementParams, TargetPlan, build_plan, first_target  # noqa: F401  (first_target: geriye dönük içe aktarım)
 from ..liquidity import internal_levels, liquidation, v_shape_exit
 from ..liquidity.liquidation import MAX_WINDOW
 from ..risk.limits import DayLossTracker
@@ -99,6 +100,10 @@ class OrderIntent:
     entry_zone_id: str
     entry_zone_kind: str                             # FLIP | EXTREME | POI
     cancel_if_reaches: Optional[Decimal]             # ilk hedef: dolmadan bu fiyata ulaşılırsa iptal
+    plan: TargetPlan                                 # MG-R002/R005: giriş anında belirlenen çıkış planı
+    h4_trend: str
+    m15_trend: str
+    session: str
     trend_class: str
     poi_score: Decimal
     poi_max_score: Decimal
@@ -167,28 +172,6 @@ def choose_entry_zone(choch: StructureEvent, ze: ZoneEngine, requires_sweep: boo
     return None, "NONE"
 
 
-def first_target(side: Side, trend_class: TrendClass, entry: Decimal, states: Mapping[Timeframe, MarketState],
-                 m15_zones: Sequence[Zone]) -> Optional[Decimal]:
-    """İlk hedef (iptal kuralı için; Q-E2): PRO/MIXED → M15 swing ucu (trend yönünde, girişin ötesinde);
-    COUNTER_HTF → bir sonraki M15 S&D zonu veya M15 swing ucundan girişe en yakın olan. Yoksa None."""
-    st = states.get(Timeframe.M15)
-    cands: list[Decimal] = []
-    long = side is Side.LONG
-    if st is not None:
-        pt = st.swing_high if long else st.swing_low
-        if pt is not None and ((pt.price > entry) if long else (pt.price < entry)):
-            cands.append(pt.price)
-    if trend_class is TrendClass.COUNTER_HTF:
-        for z in m15_zones:
-            if z.valid and z.usable and z.kind is (ZoneKind.SUPPLY if long else ZoneKind.DEMAND):
-                edge = z.bottom if long else z.top
-                if (edge > entry) if long else (edge < entry):
-                    cands.append(edge)
-    if not cands:
-        return None
-    return min(cands) if long else max(cands)
-
-
 def fill_touch(side: Side, entry: Decimal, c: Candle, spread: Decimal) -> bool:
     """Limit giriş dokunuşu (bid mumundan): long ask ile (ask = bid + spread), short bid ile dolar."""
     return (c.low + spread <= entry) if side is Side.LONG else (c.high >= entry)
@@ -224,9 +207,10 @@ class SignalBook:
 # ------------------------------------------------------------------ model
 class EntryModel:
     def __init__(self, pair: str, params: EntryParams, poi_params: POIParams, stop_params: StopParams,
-                 sizing: SizingParams, clock: SessionClock, tracker: DayLossTracker,
+                 sizing: SizingParams, clock: SessionClock, tracker: DayLossTracker, mgmt: ManagementParams,
                  news: Optional[NewsCalendar] = None):
         self.pair, self.p, self.poi_p, self.stop_p, self.sizing = pair, params, poi_params, stop_params, sizing
+        self.mgmt = mgmt
         self.clock, self.tracker, self.news = clock, tracker, news
         self.setups: list[Setup] = []
         self.book = SignalBook(params.duplicate_policy, params.opposite_policy)
@@ -405,13 +389,19 @@ class EntryModel:
         rej = self.book.check(s, t)
         if rej is not None:
             return self._abort(s, t, rej[0], rej[1])                                          # T-DUP-01
-        target = first_target(side, tclass, plan.entry, view.states, view.zones.get(Timeframe.M15, ()))
+        tplan = build_plan(side, tclass, plan.entry, plan.stop, view.states, view.zones.get(Timeframe.M15, ()), self.mgmt)
+        if isinstance(tplan, Rejected):
+            return self._abort(s, t, tplan.reason, tplan.rule, tplan.detail)                  # MG-R005: çıkış planı yok
+        ft = tplan.first_target
+        target = ft.price if ft is not None else None
         note = (self.news.note(t) if self.news is not None else NewsNote(NewsStatus.UNKNOWN)).text(self.clock.display_tz)
         intent = OrderIntent(s.id, self.pair, side, "LIMIT", plan.entry, plan.stop, plan.pip_risk, size.lots, size.units,
-                             self.sizing.risk_pct, size.risk_amount, t, s.poi.id, s.poi.tf, zone.id, kind, target,
-                             tclass.value if tclass else "UNKNOWN", res.score, res.max_score, res.breakdown(),
-                             res.shares_event_with, note,
-                             ("EN-R001", "EN-R006", "SD-R005", "PD-R003", "SL-R001", "SL-R003", "FM-02", "RK-R001"))
+                             self.sizing.risk_pct, size.risk_amount, t, s.poi.id, s.poi.tf, zone.id, kind, target, tplan,
+                             view.states[Timeframe.H4].swing_trend.value, view.states[Timeframe.M15].swing_trend.value,
+                             self.clock.window_label(t), tclass.value if tclass else "UNKNOWN", res.score, res.max_score,
+                             res.breakdown(), res.shares_event_with, note,
+                             ("EN-R001", "EN-R006", "SD-R005", "PD-R003", "SL-R001", "SL-R003", "FM-02", "RK-R001",
+                              "MG-R001", "MG-R002", "MG-R005"))
         s.intent = intent
         s.to(State.ORDER_PENDING, t, f"SIGNAL:{kind}")
         return [SignalEvent("SIGNAL", s, t, intent)]
@@ -433,6 +423,10 @@ class EntryModel:
     # ---- dışarıdan çağrılar (backtest / pozisyon yönetimi) ----
     def mark_filled(self, s: Setup, t: datetime) -> None:
         s.to(State.POSITION_OPEN, t, "FILLED")
+
+    def mark_risk_free(self, s: Setup, t: datetime) -> None:
+        """Risk kaldırıldı (4R'de %20 kapandı, MG-R001): POSITION_OPEN → RISK_FREE; scale-in artık mümkün (MG-R004)."""
+        s.to(State.RISK_FREE, t, "RISK_REMOVED")
 
     def mark_closed(self, s: Setup, t: datetime, net_pnl: Decimal) -> State:
         """Pozisyon kapandı: kayıpsa günlük sayaç (RK-R003, Q-P3); 3. kayıpta kurulum DAY_LOCKED, aksi halde WATCHING (§17)."""

@@ -22,6 +22,7 @@ from ..structure.engine import StructureEngine
 from ..structure.models import EventType, StructureEvent
 from ..structure.params import StructureParams
 from ..zones.engine import ZoneEngine, ZoneParams
+from ..execution.management import ManagementParams
 from .entry_model import EntryModel, EntryParams, MarketView, SignalEvent
 from .poi import POIParams
 
@@ -69,8 +70,9 @@ class MtfAggregator:
 
 class StrategyRunner:
     def __init__(self, cfg, pair: str, live_from: datetime, balance: Decimal,
-                 news: Optional[NewsCalendar] = None):
+                 news: Optional[NewsCalendar] = None, publisher=None):
         cfg.require("strategy", "data_boundaries", "structure_warmup")
+        self.publisher = publisher                 # signals.output.SignalPublisher (isteğe bağlı): olaylar ekrana/log'a yazılır
         self.pair, self.live_from, self.balance = pair, live_from, balance
         self.side = PriceSide(cfg.get("candle_price_side"))
         self.agg = MtfAggregator(BoundarySpec.from_config(cfg))
@@ -94,7 +96,7 @@ class StrategyRunner:
         self.zone_lists = {tf: self.zones_eng[tf].zones for tf in HTF}
         self.model = EntryModel(pair, EntryParams.from_config(cfg, pair), POIParams.from_config(cfg), StopParams.from_config(cfg, pair),
                                 SizingParams.from_config(cfg, pair), SessionClock.from_config(cfg),
-                                DayLossTracker.from_config(cfg), news)
+                                DayLossTracker.from_config(cfg), ManagementParams.from_config(cfg), news)
         self._watched: set[str] = set()
         self._states: dict[Timeframe, object] = {}
 
@@ -136,4 +138,8 @@ class StrategyRunner:
         states = self._states
         view = MarketView(c.open_time + qc.tf.delta, self.m1, len(self.m1) - 1, ev1, self.m1_struct, self.m1_zones,
                           states, self.m15_events, self.zone_lists, self.balance)
-        return self.model.step(view, live=self.live)
+        events = self.model.step(view, live=self.live)
+        if self.publisher is not None:
+            for e in events:
+                self.publisher.publish(e)
+        return events

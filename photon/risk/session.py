@@ -56,6 +56,15 @@ class SessionClock:
             return Decision(False, "OUT_OF_SESSION", "SS-R001")
         return Decision(True)
 
+    def window_label(self, t: datetime) -> str:
+        """`t`'yi içeren seans penceresi: 'HH:MM–HH:MM Europe/London (HH:MM–HH:MM Europe/Istanbul)'; seans dışıysa ''."""
+        local = ensure_utc(t).astimezone(self.tz)
+        for (a, b), (ua, ub) in zip(self.windows, self.windows_utc(local.date())):
+            if _in_window(local.time(), a, b):
+                da, db = ua.astimezone(self.display_tz), ub.astimezone(self.display_tz)
+                return (f"{a:%H:%M}–{b:%H:%M} {self.tz.key} ({da:%H:%M}–{db:%H:%M} {self.display_tz.key})")
+        return ""
+
     def windows_utc(self, day: date) -> list[tuple[datetime, datetime]]:
         """Verilen Londra gününün pencereleri (UTC)."""
         return [(local_to_utc(datetime.combine(day, a), self.tz), local_to_utc(datetime.combine(day, b), self.tz))
