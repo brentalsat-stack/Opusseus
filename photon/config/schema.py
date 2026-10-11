@@ -280,6 +280,7 @@ MODULES: dict[str, ModuleSpec] = {
         R("costs.commission.min_per_order", num_ge(0)),
         R("costs.commission.currency", non_empty_str),
         R("data.backtest.primary", one_of("HISTDATA", "OANDA_PRACTICE", "DUKASCOPY")),
+        R("backtest.initial_balance", num_gt(0)),   # Q-B1: kaynakta yok → varsayım (config'de işaretli, CLI --balance ile geçersiz kılınır)
     ), depends_on=("signals",)),
     "data_boundaries": ModuleSpec((  # Aşama 1: Q-D01, Q-D02
         R("candle_boundaries.tz", iana_tz),

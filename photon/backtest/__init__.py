@@ -1,1 +1,1 @@
-"""Backtest: engine, fills (intrabar), costs, metrics, reports (§22). Gate: 'backtest'. İskelet."""
+"""Backtest (§22): engine (dolum modeli, yönetim döngüsü), report (metrikler, CSV)."""

@@ -112,12 +112,16 @@ class StrategyRunner:
     def live(self) -> bool:
         return bool(self.m1) and self.m1[-1].open_time >= self.live_from
 
-    def on_m1(self, qc: QuoteCandle) -> list[SignalEvent]:
-        """Bir M1 (bid/ask) mumu kapandı → sinyal/iptal/ret olayları."""
+    def on_m1(self, qc: QuoteCandle, pre_step=None) -> list[SignalEvent]:
+        """Bir M1 (bid/ask) mumu kapandı → sinyal/iptal/ret olayları.
+        `pre_step(candle)`: bu mumun doldurma/yönetim simülasyonu (backtest); HTF/M1 motorları ve giriş modeli ADIMINDAN ÖNCE çağrılır,
+        böylece bekleyen emrin bu mumda dolması, aynı mumdaki iptal kontrolünden önce işlenir."""
         self._q.append(qc)
         self._qt.append(qc.open_time)
         c = qc.to_candle(self.side)
         self.m1.append(c)
+        if pre_step is not None:
+            pre_step(c)
         htf = self.agg.feed(qc)
         for hq in htf:
             hc = hq.to_candle(self.side)

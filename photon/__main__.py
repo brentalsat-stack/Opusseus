@@ -49,6 +49,14 @@ def main(argv: list[str] | None = None) -> int:
     zn.add_argument("--end", type=date.fromisoformat, required=True, help="dahil")
     zn.add_argument("--out", default="zones_out")
     zn.add_argument("--all", action="store_true", help="grafikte geçersiz zonları da çiz")
+    bt = sub.add_parser("backtest", help="backtest: sinyal + simüle dolum/yönetim; rapor + CSV (emir gönderilmez)")
+    bt.add_argument("--config", default=str(DEFAULT_PATH))
+    bt.add_argument("--source", choices=["HISTDATA", "OANDA_PRACTICE", "DUKASCOPY"])
+    bt.add_argument("--pair")
+    bt.add_argument("--start", type=date.fromisoformat, required=True)
+    bt.add_argument("--end", type=date.fromisoformat, required=True, help="dahil")
+    bt.add_argument("--balance", help="başlangıç bakiyesi (verilmezse config backtest.initial_balance)")
+    bt.add_argument("--out", default="backtest_out")
     args = ap.parse_args(argv)
 
     cfg = load_config(args.config)
@@ -67,6 +75,8 @@ def main(argv: list[str] | None = None) -> int:
         return _structure_cmd(cfg, args)
     if args.cmd == "zones":
         return _zones_cmd(cfg, args)
+    if args.cmd == "backtest":
+        return _backtest_cmd(cfg, args)
     reports = validate_all(cfg)
     for name, r in reports.items():
         print(f"{'READY  ' if r.ok else 'BLOCKED'} {name}")
@@ -178,6 +188,42 @@ def _zones_cmd(cfg, args) -> int:
     print(f"{n} zon ({len(live)} canlı dönemde doğan) → {out}/")
     print(summarize(live))
     print(summarize_diagnostics(st.diagnostics, 0))
+    return 0
+
+
+def _backtest_cmd(cfg, args) -> int:
+    from datetime import timedelta
+    from decimal import Decimal
+    from pathlib import Path
+
+    from .backtest.engine import BacktestEngine
+    from .backtest.report import format_report, write_outputs
+    from .data import tools
+    from .logging_setup import setup_from_config
+    from .signals.output import SignalPublisher
+
+    setup_from_config(cfg)
+    cfg.require("backtest", "strategy", "management", "data_boundaries", "structure_warmup")
+    source = args.source or cfg.get("data.backtest.primary")
+    pair = args.pair or cfg.pairs[0]
+    start, end = tools.day_range(args.start, args.end)
+    warm = max(cfg.get(f"warmup_period.{tf}") for tf in ("D1", "H4", "M15", "M1"))
+    m1 = tools.load_m1(cfg, source, pair, start - timedelta(days=warm), end)
+    if not m1:
+        print("önbellekte M1 yok; önce `photon import-histdata` / `photon fetch` çalıştırın", file=sys.stderr)
+        return 2
+    have = (start - m1[0].open_time).days
+    if have < warm:
+        print(f"UYARI warm-up: {warm} gün istendi, veri {m1[0].open_time:%Y-%m-%d} tarihinde başlıyor ({max(have, 0)} gün) "
+              "→ mevcut verinin tamamı warm-up", file=sys.stderr)
+    bal = Decimal(args.balance) if args.balance else Decimal(str(cfg.get("backtest.initial_balance")))
+    if cfg.get("costs.commission") is None:
+        print("komisyon dahil değil (config'de costs.commission yok)")
+    eng = BacktestEngine(cfg, pair, start, end, bal, publisher=SignalPublisher(["LOG_FILE"]))   # sinyal metni log'a; ekrana yalnızca rapor
+    res = eng.run(m1)
+    print(format_report(res))
+    paths = write_outputs(res, Path(args.out))
+    print("\nDosyalar: " + ", ".join(str(p) for p in paths.values()))
     return 0
 
 

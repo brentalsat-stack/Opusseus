@@ -108,6 +108,11 @@ Strateji kapısı iki karar bekliyor: `duplicate_signal_policy`, `opposite_signa
 `photon/execution/{management,position}.py`, `photon/signals/output.py`. Hacim dağılımları, kural→kod→test tablosu ve **açık sorular (Q-M1..Q-M5)**: `photon/execution/README.md`.
 Giriş modelindeki Q-E8 (bekleme) kararı: `photon/strategy/README.md`.
 
+### Aşama 7 (backtest)
+
+`photon/backtest/{engine,report}.py`, `photon/journal`. Komut: `python -m photon backtest --start 2021-09-01 --end 2021-09-30 [--balance N] [--out DIR]`
+(önce `import-histdata`). Dolum modeli, rapor içeriği, çıktı dosyaları ve **açık sorular (Q-B1..Q-B4)**: `photon/backtest/README.md`.
+
 ### Açık sorular
 
 - Kalan `REQUIRED`: `swing_min_pullback_pips.EURUSD.M1` (kalibrasyon), `v_shape_metric` (Aşama 4).

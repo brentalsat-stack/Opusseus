@@ -131,6 +131,8 @@ costs:
     rate_pct: 0.002                     # işlem tutarının %0.002'si (0.2 bps)
     min_per_order: 2
     currency: USD
+backtest:
+  initial_balance: 10000                # Q-B1 VARSAYIM (kaynakta/kararlarda yok; hesap USD): yalnızca % getiri ve lot boyutu ölçeğini belirler. CLI --balance ile değiştirilir.
 reference_backtest: {pair: EURUSD, entry_tf: M15, start: "2021-09-01", end: "2021-09-30"}
 
 # Q-D01 KARAR (Aşama 1): H4/D1 mum sınırları.
