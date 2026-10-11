@@ -1,7 +1,7 @@
 """Pozisyon yöneticisi (MG-R001, MG-R003, MG-R004): bacak hedefleri, risk kaldırma (stop yerinde), scale-in kapısı.
 
 Çıkış fiyatları spread'li: long bid ile (bid mumu), short ask ile (ask = bid + spread) çıkar. Aynı mumda stop ve hedef → STOP (DECISIONS §7,
-tick yok): kalan hacmin tamamı stop'ta kapanır, durum sayılır. Hedef dolumları limit fiyatından, stop dolumu stop fiyatından (kayma yok).
+tick yok): kalan hacmin tamamı stop'ta kapanır, durum sayılır. Hedef dolumları limit fiyatından; stop dolumu stop fiyatından, GAP'te açılış fiyatından.
 Trailing yok; SL yalnızca BE için taşınabilir (MG-R003) — varsayılan yöntemde (PARTIAL) stop hiç taşınmaz."""
 from __future__ import annotations
 
@@ -66,7 +66,8 @@ class ScaleInDecision:
 class PositionManager:
     def __init__(self, params: ManagementParams, spread: Decimal, lot_step: Decimal, min_lot: Decimal):
         self.p, self.spread, self.lot_step, self.min_lot = params, spread, lot_step, min_lot
-        self.stats = {"same_candle_stop_first": 0}      # raporda gösterilir (DECISIONS §7)
+        self.stats = {"same_candle_stop_first": 0, "entry_and_stop_same_candle": 0, "stop_gap_fills": 0,
+                      "entry_and_target_same_candle_ignored": 0}      # raporda gösterilir (DECISIONS §7, Aşama 7 kararları)
 
     def open(self, setup_id: str, side: Side, entry: Decimal, stop: Decimal, lots: Decimal, plan: TargetPlan,
              time: datetime) -> Position:
@@ -91,21 +92,46 @@ class PositionManager:
         pos.lots_open -= lots
         return f
 
-    def on_candle(self, pos: Position, c: Candle, time: datetime, h4_choch_confirmed: bool = False) -> list[Fill]:
-        """Bir M1 mumu: stop/hedef değerlendirmesi. `h4_choch_confirmed`: girişten sonra işlem yönünde 4H CHoCH var mı (D-26)."""
+    def _stop_price(self, pos: Position, c: Candle, entry_candle: bool) -> Decimal:
+        """Stop dolumu: stop fiyatından; GAP'te (mum açılışı stop'un ötesinde) açılış fiyatından (short: ask = bid + spread).
+        Giriş mumunda açılış girişten önce olduğu için gap uygulanmaz."""
+        if entry_candle:
+            return pos.stop
+        if pos.side is Side.LONG:
+            return c.open if c.open < pos.stop else pos.stop
+        ask_open = c.open + self.spread
+        return ask_open if ask_open > pos.stop else pos.stop
+
+    def on_candle(self, pos: Position, c: Candle, time: datetime, h4_choch_confirmed: bool = False,
+                  entry_candle: bool = False) -> list[Fill]:
+        """Bir M1 mumu: stop/hedef değerlendirmesi. `h4_choch_confirmed`: girişten sonra işlem yönünde 4H CHoCH var mı (D-26).
+        `entry_candle`: pozisyonun dolduğu mum — mum içi sıra bilinmediğinden yalnızca STOP değerlendirilir (giriş + stop aynı mumda → stop;
+        hedefler bu mumda yok sayılır, sayılır)."""
         if pos.closed:
             return []
         out: list[Fill] = []
         pending = [l for l in pos.plan.legs if l.name not in pos._filled_legs and pos.leg_lots.get(l.name, 0) > 0]
         reached = [l for l in pending if self._reached(pos, l, c)]
         if self._hit_stop(pos, c):
-            if reached:
+            if entry_candle:
+                self.stats["entry_and_stop_same_candle"] += 1       # giriş + stop aynı mumda → giriş dolar ve stop olur (kötümser)
+                pos.notes.append(f"ENTRY_AND_STOP_SAME_CANDLE@{time.isoformat()}")
+            elif reached:
                 self.stats["same_candle_stop_first"] += 1           # aynı mumda stop + hedef → stop (kötümser)
                 pos.notes.append(f"SAME_CANDLE_STOP_FIRST@{time.isoformat()}")
+            px = self._stop_price(pos, c, entry_candle)
+            if px != pos.stop:
+                self.stats["stop_gap_fills"] += 1
+                pos.notes.append(f"STOP_GAP_FILL@{time.isoformat()}")
             if pos.lots_open > 0:
-                out.append(self._fill(pos, time, "STOP", pos.stop, pos.lots_open,
+                out.append(self._fill(pos, time, "STOP", px, pos.lots_open,
                                       "SL_AFTER_RISK_REMOVAL" if pos.risk_removed else "SL"))
             pos.closed = True
+            return out
+        if entry_candle:
+            if reached:
+                self.stats["entry_and_target_same_candle_ignored"] += 1   # sıra bilinmiyor: hedefler bu mumda yok sayılır
+                pos.notes.append(f"ENTRY_AND_TARGET_SAME_CANDLE_IGNORED@{time.isoformat()}")
             return out
         for leg in reached:                                            # girişe yakından uzağa
             if leg.name in pos._filled_legs:

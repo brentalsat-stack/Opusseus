@@ -41,7 +41,9 @@ def format_signal(it: OrderIntent, display_tz: ZoneInfo = ISTANBUL) -> str:
         r = ((leg.price - it.entry) if long else (it.entry - leg.price)) / pip if pip else 0
         extra = " → risk kaldırılır, stop yerinde" if leg.name == RISK_REMOVAL else \
             (f" [tutma onayı: {leg.hold_requires}; yoksa M15 hedefinde kapanır]" if leg.hold_requires else "")
-        lines.append(f"  {i}) {leg.label or leg.name}: {_p(leg.price)}  %{_n(leg.pct)}  ({r:.1f}R){extra}")
+        lots = it.leg_lots[i - 1]
+        real = lots / it.lots * 100 if it.lots else 0
+        lines.append(f"  {i}) {leg.label or leg.name}: {_p(leg.price)}  %{_n(leg.pct)} (gerçekleşen %{real:.1f}, {lots:.2f} lot)  ({r:.1f}R){extra}")
     lines.append("İptal: " + (f"dolmadan {_p(it.cancel_if_reaches)} seviyesine ulaşılırsa" if it.cancel_if_reaches is not None
                               else "ilk hedef tanımlı değil"))
     lines += [

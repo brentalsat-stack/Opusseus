@@ -15,7 +15,7 @@ from decimal import Decimal
 from typing import Mapping, Optional, Sequence, Union
 
 from ..data.models import Candle, Timeframe
-from ..execution.management import ManagementParams, TargetPlan, build_plan, first_target  # noqa: F401  (first_target: geriye dönük içe aktarım)
+from ..execution.management import ManagementParams, TargetPlan, build_plan, first_target, split_lots  # noqa: F401  (first_target: geriye dönük içe aktarım)
 from ..liquidity import internal_levels, liquidation, v_shape_exit
 from ..liquidity.liquidation import MAX_WINDOW
 from ..risk.limits import DayLossTracker
@@ -101,6 +101,8 @@ class OrderIntent:
     entry_zone_kind: str                             # FLIP | EXTREME | POI
     cancel_if_reaches: Optional[Decimal]             # ilk hedef: dolmadan bu fiyata ulaşılırsa iptal
     plan: TargetPlan                                 # MG-R002/R005: giriş anında belirlenen çıkış planı
+    leg_lots: tuple[Decimal, ...]                    # bacak başına GERÇEKLEŞEN lot (lot adımı yuvarlaması sonrası; Q-M3)
+    criteria: tuple[tuple[str, Decimal, Optional[bool]], ...]   # POI kriterleri: (ad, ağırlık, kazanıldı mı / None=bilinmiyor)
     h4_trend: str
     m15_trend: str
     session: str
@@ -397,6 +399,8 @@ class EntryModel:
         note = (self.news.note(t) if self.news is not None else NewsNote(NewsStatus.UNKNOWN)).text(self.clock.display_tz)
         intent = OrderIntent(s.id, self.pair, side, "LIMIT", plan.entry, plan.stop, plan.pip_risk, size.lots, size.units,
                              self.sizing.risk_pct, size.risk_amount, t, s.poi.id, s.poi.tf, zone.id, kind, target, tplan,
+                             tuple(split_lots(size.lots, [l.pct for l in tplan.legs], self.sizing.lot_step, self.sizing.min_lot)),
+                             tuple((c.name, c.weight, c.earned) for c in res.criteria),
                              view.states[Timeframe.H4].swing_trend.value, view.states[Timeframe.M15].swing_trend.value,
                              self.clock.window_label(t), tclass.value if tclass else "UNKNOWN", res.score, res.max_score,
                              res.breakdown(), res.shares_event_with, note,
