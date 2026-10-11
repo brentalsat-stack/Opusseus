@@ -105,5 +105,16 @@ def test_warmup_period_never_progresses_setups_or_emits(run_result):
 
 def test_runner_requires_policy_decisions_failfast():
     from photon.config import ConfigError
+    text = open("config.yaml", encoding="utf-8").read().replace("duplicate_signal_policy: REJECT", "duplicate_signal_policy: REQUIRED")
+    import pathlib, tempfile
+    p = pathlib.Path(tempfile.mkdtemp()) / "c.yaml"
+    p.write_text(text, encoding="utf-8")
     with pytest.raises(ConfigError, match="duplicate_signal_policy"):
-        StrategyRunner(load_config(), "EURUSD", datetime(2021, 9, 1, tzinfo=UTC), D(10000))
+        StrategyRunner(load_config(p), "EURUSD", datetime(2021, 9, 1, tzinfo=UTC), D(10000))
+
+
+def test_limit_report_has_all_q_l3_counters(run_result):
+    rep = run_result[0].limit_report()
+    assert {"liquidation_window_capped", "liquidation_window_capped_no_sweep", "zones_m1_retired", "zones_m1_retired_valid",
+            "zones_M15_range_lookback_exhausted"} <= set(rep) and all(v >= 0 for v in rep.values())
+    assert rep["zones_m1_retired"] > 0                      # 1 günden eski M1 zonları gerçekten emekli oluyor

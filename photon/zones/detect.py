@@ -61,13 +61,15 @@ def pivot_zone(candles: Sequence[Candle], t: int, pipette: Decimal, draw: str) -
                     max(candles[j].high for j in use), min(candles[j].low for j in use), use[0])
 
 
-def range_zone(candles: Sequence[Candle], t: int, pipette: Decimal, min_chain: int) -> Optional[Geometry]:
+def range_zone(candles: Sequence[Candle], t: int, pipette: Decimal, min_chain: int,
+               stats: Optional[dict] = None) -> Optional[Geometry]:
     """SD-R001 (kullanıcı tanımı): t kopuş mumu; zincir = mother + ≥(min_chain−1) inside bar."""
     c = candles[t]
     mx = None            # m+1..t-1 arası en yüksek high
     mn = None
     best: Optional[int] = None
-    for m in range(t - 1, max(-1, t - 1 - MAX_CHAIN_LOOKBACK), -1):
+    stop = max(-1, t - 1 - MAX_CHAIN_LOOKBACK)
+    for m in range(t - 1, stop, -1):
         if t - 1 - m >= min_chain - 1:
             hm, lm = candles[m].high, candles[m].low
             inside = mx - hm < pipette and lm - mn < pipette
@@ -76,6 +78,8 @@ def range_zone(candles: Sequence[Candle], t: int, pipette: Decimal, min_chain: i
         h, l = candles[m].high, candles[m].low
         mx = h if mx is None else max(mx, h)
         mn = l if mn is None else min(mn, l)
+    if stats is not None and stop > -1 and best == stop + 1:
+        stats["range_lookback_exhausted"] += 1       # en eski aday lookback sınırında: daha eski bir mother olabilirdi (Q-L3)
     if best is None:
         return None
     chain = range(best, t)

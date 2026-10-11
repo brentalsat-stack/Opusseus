@@ -60,6 +60,7 @@ class ZoneEngine:
         self._act: list[Zone] = []          # izlenen (kullanılabilir) zonlar
         self._pip = params.pip_size / 10
         self._tracks: dict[str, _Track] = {}
+        self.limits = {"retired": 0, "retired_valid": 0, "range_lookback_exhausted": 0}   # Q-L3: sınırlar nedeniyle elenen durumlar
         self.validated: list[Zone] = []     # SD-R005: geçerli hale gelen zonlar (tüketici okuyup temizler; POI izleme için)
         self._prev_trend: Trend = Trend.UNDEFINED
         self._seq = 0
@@ -107,6 +108,8 @@ class ZoneEngine:
         for z in list(self._act):
             if ra is not None and t - z.created_index > ra:
                 self._tracks.pop(z.id, None)
+                self.limits["retired"] += 1
+                self.limits["retired_valid"] += int(z.valid)
                 continue                                    # emekli: izlenmez (z.zones içinde kalır)
             if z.created_index < t:
                 f = self._advance(z, t)
@@ -143,7 +146,7 @@ class ZoneEngine:
         # M1'de REACTION_BASE_TO_TOP yalnız flip giriş kutusunu belirler; altta yatan pivot/range zonlar tüm koşu olarak çizilir
         mode = "CANDLE" if self.p.draw_mode == "CANDLE" else "RANGE"
         for g in (pivot_zone(self.candles, t, pip, mode),
-                  range_zone(self.candles, t, pip, self.p.min_chain)):
+                  range_zone(self.candles, t, pip, self.p.min_chain, self.limits)):
             if g is not None:
                 out.append(self._mk(g.kind, g.origin, g.draw, g.top, g.bottom, g.first_index, t, self._context(g.kind)))
         return out

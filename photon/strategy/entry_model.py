@@ -231,6 +231,7 @@ class EntryModel:
         self.setups: list[Setup] = []
         self.book = SignalBook(params.duplicate_policy, params.opposite_policy)
         self._engines: dict[str, ZoneEngine] = {}
+        self.stats = {"liquidation_window_capped": 0, "liquidation_window_capped_no_sweep": 0}   # Q-L3: sınır nedeniyle etkilenen durumlar
 
     # ---- kurulum oluşturma (alarm) ----
     def watch(self, zone: Zone, ze: ZoneEngine, zones: Mapping[Timeframe, Sequence[Zone]]) -> Setup:
@@ -267,6 +268,8 @@ class EntryModel:
                 out += self._pending(s, view, c)
             elif s.state is State.WATCHING:
                 out += self._watching(s, view, c)
+            elif s.state is State.POI_MITIGATED:
+                out += self._mitigated(s, view, c)
             elif s.state is State.CONFIRMATION_PENDING:
                 out += self._confirming(s, view, c)
         return out
@@ -309,19 +312,31 @@ class EntryModel:
         s.mitigation_time = view.m1[s.visit_start].open_time
         # liquidation (EN-R001 adım 1) mitigasyon anında, fiyat zonun içindeyken değerlendirilir: süpürme dokunuştan önce/aynı mumda olmalı
         s.liquidation = liquidation(view.m1, hit, view.i, self.p.eq_tol, self.p.pipette, internal_levels(view.m1_struct, max(0, view.i - MAX_WINDOW)))
+        if s.liquidation.window_capped:
+            self.stats["liquidation_window_capped"] += 1
+            if not s.liquidation.found:
+                self.stats["liquidation_window_capped_no_sweep"] += 1      # 48 saat sınırı olmasa belki bulunurdu (elenen durum)
         s.to(State.POI_MITIGATED, view.now, f"MITIGATION:{hit.id}")
+        return self._mitigated(s, view, c)
+
+    def _mitigated(self, s: Setup, view: MarketView, c: Candle) -> list[SignalEvent]:
+        """POI_MITIGATED: izin (EN-R006/Q-P1) ve karşı-HTF çift BOS (EN-R007). Q-E8 (KULLANICI KARARI): reddedilirse kurulum burada BEKLER —
+        POI geçersizleşene kadar her mumda yeniden değerlendirilir (M15 CHoCH sonradan gelebilir); bekleme süresince limit sinyal yok."""
         perm, tclass = self._permission(s, view, s.mitigation_time)
         if not perm.allowed:
-            s.reject(view.now, "PERMISSION", perm.rule, perm.reason)
-            s.to(State.WATCHING, view.now, "NO_PERMISSION")
-            return []
+            return self._wait(s, view, "PERMISSION", perm.rule, perm.reason)
         if (tclass is TrendClass.COUNTER_HTF and self.p.counter_htf_require_double_bos
                 and not double_bos(view.m15_events, s.direction)):
-            s.reject(view.now, "COUNTER_HTF_NEEDS_DOUBLE_BOS", "EN-R007", "M15'te işlem yönünde ardışık 2 BOS yok")
-            s.to(State.WATCHING, view.now, "COUNTER_HTF_WAIT")
-            return []
+            return self._wait(s, view, "COUNTER_HTF_NEEDS_DOUBLE_BOS", "EN-R007", "M15'te işlem yönünde ardışık 2 BOS yok")
+        s.wait_reason = ""
         s.to(State.CONFIRMATION_PENDING, view.now, perm.row)
         return self._confirming(s, view, c)               # dokunuş mumunun kendisinde CHoCH olamaz (indeks > visit_start şartı)
+
+    def _wait(self, s: Setup, view: MarketView, reason: str, rule: str, detail: str) -> list[SignalEvent]:
+        if s.wait_reason != reason:                       # aynı nedenle bekleme tek kez kaydedilir
+            s.reject(view.now, reason, rule, detail)
+            s.wait_reason = reason
+        return []
 
     # ---- CONFIRMATION_PENDING ----
     def _confirming(self, s: Setup, view: MarketView, c: Candle) -> list[SignalEvent]:

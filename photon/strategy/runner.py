@@ -98,6 +98,14 @@ class StrategyRunner:
         self._watched: set[str] = set()
         self._states: dict[Timeframe, object] = {}
 
+    def limit_report(self) -> dict:
+        """Q-L3 uygulama sınırları yüzünden elenen/etkilenen durumların sayısı (backtest raporu için)."""
+        rep = dict(self.model.stats)
+        for name, ze in [("m1", self.m1_zones)] + [(tf.value, self.zones_eng[tf]) for tf in HTF]:
+            for k, v in ze.limits.items():
+                rep[f"zones_{name}_{k}"] = v
+        return rep
+
     @property
     def live(self) -> bool:
         return bool(self.m1) and self.m1[-1].open_time >= self.live_from

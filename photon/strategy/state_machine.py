@@ -1,4 +1,4 @@
-"""FINAL_SPEC §17 durum makinesi. Kurulum (Setup) düzeyi: WATCHING → … → CLOSED; küresel düzey: IDLE/MAPPING/WATCHING/DAY_LOCKED.
+"""FINAL_SPEC §17 durum makinesi (Q-E8 kullanıcı kararıyla güncel: "izin yok → WATCHING" yerine POI_MITIGATED'da bekleme). Kurulum (Setup) düzeyi: WATCHING → … → CLOSED; küresel düzey: IDLE/MAPPING/WATCHING/DAY_LOCKED.
 
 Geçişler tablo ile doğrulanır; yasa dışı geçiş IllegalTransition fırlatır. Geçmiş (neden + zaman) her kurulumda tutulur."""
 from __future__ import annotations
@@ -32,6 +32,7 @@ ALLOWED: dict[State, frozenset[State]] = {
     S.IDLE: frozenset({S.MAPPING}),
     S.MAPPING: frozenset({S.WATCHING, S.IDLE}),
     S.WATCHING: frozenset({S.POI_MITIGATED, S.IDLE, S.DAY_LOCKED}),
+    # Q-E8 (KULLANICI KARARI): izin reddinde kurulum POI_MITIGATED'da BEKLER (POI geçersizleşene kadar); WATCHING'e yalnızca POI iptalinde döner.
     S.POI_MITIGATED: frozenset({S.WATCHING, S.CONFIRMATION_PENDING}),
     S.CONFIRMATION_PENDING: frozenset({S.ENTRY_READY, S.WATCHING}),
     S.ENTRY_READY: frozenset({S.ORDER_PENDING, S.WATCHING}),
@@ -77,6 +78,7 @@ class Setup:
     has_inducement: Optional[bool] = None        # alarm anında hesaplanır (LQ-R003)
     cancelled: Optional[str] = None              # kalıcı iptal nedeni (POI geçersiz)
     notes: list[str] = field(default_factory=list)
+    wait_reason: str = ""                       # POI_MITIGATED'da bekleme nedeni (Q-E8, kullanıcı kararı)
 
     def to(self, new: State, time: datetime, reason: str = "") -> None:
         if new not in ALLOWED[self.state]:

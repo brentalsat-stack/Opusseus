@@ -29,7 +29,7 @@ def test_blocker_free_modules_ready_with_pending_fields(cfg):
         require(cfg, m)  # fırlatmamalı
 
 
-@pytest.mark.parametrize("m", ["structure_m1", "strategy", "signals", "backtest"])
+@pytest.mark.parametrize("m", ["structure_m1"])
 def test_pending_modules_blocked(cfg, m):
     assert not validate_module(cfg, m).ok
     with pytest.raises(ConfigError):
@@ -54,9 +54,10 @@ def test_error_lists_all_missing_fields(cfg):
         assert p in msg
 
 
-def test_strategy_error_names_dependency_gaps(cfg):
+def test_strategy_error_names_missing_policy_decisions(cfg):
+    c = mutate(mutate(cfg, "duplicate_signal_policy", "REQUIRED"), "opposite_signal_policy", "REQUIRED")
     with pytest.raises(ConfigError) as ei:
-        require(cfg, "strategy")
+        require(c, "strategy")
     msg = str(ei.value)
     assert "duplicate_signal_policy" in msg and "opposite_signal_policy" in msg
 
@@ -82,10 +83,9 @@ def test_blocked_module_does_not_affect_independent_module(cfg):
 
 
 def test_filling_pending_fields_unblocks(cfg):
-    c = mutate(mutate(cfg, "duplicate_signal_policy", "REJECT"), "opposite_signal_policy", "REJECT")
-    assert validate_module(c, "vshape").ok and validate_module(c, "strategy").ok
+    assert validate_module(cfg, "strategy").ok and validate_module(cfg, "backtest").ok
     c = mutate(cfg, "blackout.tz", "REQUIRED")
-    assert not validate_module(c, "session_blackout").ok
+    assert not validate_module(c, "session_blackout").ok and not validate_module(c, "strategy").ok
 
 
 @pytest.mark.parametrize("path,value", [
@@ -139,8 +139,8 @@ def test_every_required_in_config_is_covered_by_a_module(cfg):
 
 
 def test_no_defaults_injected(cfg):
-    assert get_path(cfg.raw, "duplicate_signal_policy") == "REQUIRED"
-    assert not validate_all(cfg)["strategy"].ok
+    assert get_path(cfg.raw, "swing_min_pullback_pips.EURUSD.M1") == "REQUIRED"
+    assert not validate_all(cfg)["structure_m1"].ok
 
 
 def test_loader_uses_decimal_not_float(cfg):

@@ -30,6 +30,7 @@ class LiquidationResult:
     sweep_index: Optional[int] = None
     window_start: Optional[int] = None
     touch_index: Optional[int] = None
+    window_capped: bool = False       # MAX_WINDOW (Q-L3) pencereyi kısalttı mı
 
 
 def liquidation(m1: Sequence[Candle], zone: Zone, upto: int, tol: Decimal, pipette: Decimal,
@@ -48,7 +49,9 @@ def liquidation(m1: Sequence[Candle], zone: Zone, upto: int, tol: Decimal, pipet
     # pencere başı: bu ziyaretten önceki en son 'zonu kesen/aşan' mumdan sonrası; yoksa zonun doğduğu an
     prev_visit = next((i for i in range(touch - 1, -1, -1) if not outside(m1[i])), None)
     born = next((i for i, c in enumerate(m1) if c.open_time >= zone.created_time), 0)
-    start = max(born, (prev_visit + 1) if prev_visit is not None else 0, touch - MAX_WINDOW)
+    natural = max(born, (prev_visit + 1) if prev_visit is not None else 0)
+    start = max(natural, touch - MAX_WINDOW)
+    capped = start > natural
     side = Side.LOW if demand else Side.HIGH
     idx = (minor_lows if demand else minor_highs)(m1, pipette, start, touch)
     levels = equal_pools(m1, idx, side, tol)                              # yalnız eşit dip/tepe havuzları (tek minor sayılmaz)
@@ -58,8 +61,8 @@ def liquidation(m1: Sequence[Candle], zone: Zone, upto: int, tol: Decimal, pipet
     for lv in levels:
         j = next((k for k in range(lv.index + 1, touch + 1) if swept(lv, m1[k], pipette)), None)
         if j is not None:
-            return LiquidationResult(True, "", lv, j, start, touch)
-    return LiquidationResult(False, "NO_SWEEP", window_start=start, touch_index=touch)
+            return LiquidationResult(True, "", lv, j, start, touch, capped)
+    return LiquidationResult(False, "NO_SWEEP", window_start=start, touch_index=touch, window_capped=capped)
 
 
 def v_shape_exit(touch_index: int, choch_index: int, max_candles: int) -> bool:

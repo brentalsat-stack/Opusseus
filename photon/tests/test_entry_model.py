@@ -481,6 +481,110 @@ def test_global_state_helper():
 
 
 def test_entry_params_from_config_requires_policies():
-    from photon.config import ConfigError
-    with pytest.raises(ConfigError, match="duplicate_signal_policy"):
-        EntryParams.from_config(CFG, "EURUSD")
+    p = EntryParams.from_config(CFG, "EURUSD")
+    assert (p.duplicate_policy, p.opposite_policy, p.entry_type, p.v_shape_max_candles) == ("REJECT", "REJECT", "CONFIRMATION", 10)
+
+
+# ---------------- Q-E8 (KULLANICI KARARI): izin reddinde POI_MITIGATED'da bekle ----------------
+def run_wait(m15_from=None, m15_time_min=9, choch_idx=CHOCH_IDX, extra=None, states=PRO_COUNTER, rows=M1_ROWS, poi=None,
+             double_bos_events=None):
+    em, ze15, ze1, m1s, _ = build()
+    ch = StructureEvent(Timeframe.M1, EventType.CHOCH, B, px(15), choch_idx, T0 + timedelta(minutes=choch_idx), False,
+                        level_index=5, origin_index=7)
+    with_zones(ze1, ch)
+    poi = poi or zone(caused_events=[bos()])
+    zones = {Timeframe.M15: [poi], Timeframe.H4: [], Timeframe.D1: []}
+    setup = em.watch(poi, ze15, zones)
+    m1 = [m1c(i, *r) for i, r in enumerate(rows)]
+    m15ch = StructureEvent(Timeframe.M15, EventType.CHOCH, B, px(1), 3, T0 + timedelta(minutes=m15_time_min), False)
+    out, states_seen = [], []
+    for i, c in enumerate(m1):
+        m1s.update(c)
+        m15 = ([m15ch] if (m15_from is not None and i >= m15_from) else []) + list(double_bos_events or [])
+        evs = [ch] if i == choch_idx else []
+        out += em.step(MarketView(c.open_time + timedelta(minutes=1), m1, i, evs, m1s, ze1, states, m15, zones, D(10000)))
+        states_seen.append(setup.state)
+    return setup, out, states_seen
+
+
+def test_q_e8_denied_setup_waits_in_poi_mitigated_without_signal():
+    s, out, seen = run_wait(m15_from=None)
+    assert seen[7:] == [State.POI_MITIGATED] * 4 and not [e for e in out if e.kind == "SIGNAL"]      # bekleme süresince limit sinyal yok
+    assert s.wait_reason == "PERMISSION" and len(s.rejections) == 1                                    # neden tek kez kaydedilir
+    assert ALLOWED[State.POI_MITIGATED] >= {State.WATCHING, State.CONFIRMATION_PENDING}
+
+
+def test_q_e8_m15_choch_after_price_left_poi_resumes_m1_entry_search():
+    # fiyat idx8'de POI'den çıktı; M15 CHoCH (07:09) idx9'da görünür; M1 CHoCH idx10 → sinyal
+    s, out, seen = run_wait(m15_from=9, m15_time_min=9)
+    assert seen[7:9] == [State.POI_MITIGATED, State.POI_MITIGATED] and seen[9] is State.CONFIRMATION_PENDING
+    (sig,) = [e for e in out if e.kind == "SIGNAL"]
+    assert sig.intent.entry_zone_kind == "FLIP" and s.state is State.ORDER_PENDING
+    assert [h[2] for h in s.history] == [State.POI_MITIGATED, State.CONFIRMATION_PENDING, State.ENTRY_READY, State.ORDER_PENDING]
+
+
+def test_q_e8_m1_choch_before_permission_opens_is_not_used_and_setup_keeps_waiting():
+    s, out, seen = run_wait(m15_from=11, m15_time_min=11, rows=M1_ROWS + [(20, 17)])   # izin idx11'de açılır; M1 CHoCH idx10'da geçmişte kaldı
+    assert not [e for e in out if e.kind == "SIGNAL"] and seen[10] is State.POI_MITIGATED and seen[-1] is State.CONFIRMATION_PENDING
+
+
+def test_q_e8_waiting_setup_is_cancelled_when_poi_invalidated():
+    em, ze15, ze1, m1s, _ = build()
+    poi = zone(caused_events=[bos()])
+    zones = {Timeframe.M15: [poi], Timeframe.H4: [], Timeframe.D1: []}
+    s = em.watch(poi, ze15, zones)
+    m1 = [m1c(i, *r) for i, r in enumerate(M1_ROWS)]
+    for i, c in enumerate(m1[:9]):
+        m1s.update(c)
+        em.step(MarketView(c.open_time + timedelta(minutes=1), m1, i, [], m1s, ze1, PRO_COUNTER, [], zones, D(10000)))
+    assert s.state is State.POI_MITIGATED
+    poi.invalidated_index = 5
+    em.step(MarketView(m1[9].open_time + timedelta(minutes=1), m1, 9, [], m1s, ze1, PRO_COUNTER, [], zones, D(10000)))
+    assert s.cancelled == "POI_INVALIDATED" and s.state is State.WATCHING and s not in em.setups
+
+
+def test_q_e8_counter_htf_double_bos_wait_then_proceeds():
+    states = {Timeframe.H4: state(Timeframe.H4, S), Timeframe.M15: state(Timeframe.M15, B)}
+    s, out, seen = run_wait(states=states, double_bos_events=[bos(minute=0)])
+    assert seen[7] is State.POI_MITIGATED and s.wait_reason == "COUNTER_HTF_NEEDS_DOUBLE_BOS"
+    s2, out2, seen2 = run_wait(states=states, double_bos_events=[bos(minute=0), bos(minute=15)])
+    assert [e for e in out2 if e.kind == "SIGNAL"] and s2.state is State.ORDER_PENDING
+
+
+# ---------------- Q-L3 sınır sayaçları ----------------
+def test_q_l3_liquidation_window_cap_is_flagged(monkeypatch):
+    import importlib
+    L = importlib.import_module("photon.liquidity.liquidation")        # paket `liquidation` adını fonksiyonla gölgeler
+    liq = L.liquidation
+    m1 = [m1c(i, *r) for i, r in enumerate(M1_ROWS[:8])]
+    poi = zone()
+    ok = liq(m1, poi, 7, 2 * PIP, PIPETTE)
+    assert ok.found and not ok.window_capped
+    monkeypatch.setattr(L, "MAX_WINDOW", 2)
+    capped = liq(m1, poi, 7, 2 * PIP, PIPETTE)
+    assert capped.window_capped and not capped.found                       # sınır olmasa bulunurdu → "elenen durum"
+
+
+def test_q_l3_zone_engine_limit_counters(monkeypatch):
+    from photon.zones import detect as D_
+    st = StructureEngine(Timeframe.M15, StructureParams(PIP, D(15), True, 2))
+    ze = ZoneEngine(Timeframe.M15, ZoneParams(PIP, "RANGE", 3, D(2), D(2), retire_after=2), st)
+    z = zone(tf=Timeframe.M15, caused_events=[bos()])
+    z.created_index = 0
+    ze.zones.append(z); ze._act.append(z)
+    st.start_auto()
+    for i in range(5):
+        c = Candle("EURUSD", Timeframe.M15, T0 + timedelta(minutes=15 * i), px(12), px(13), px(11), px(12), True)
+        ze.update(c, st.update(c))
+    assert ze.limits["retired"] == 1 and ze.limits["retired_valid"] == 1
+    monkeypatch.setattr(D_, "MAX_CHAIN_LOOKBACK", 3)
+    rows = [(50, 0, 25)] + [(30 - i * 0.1, 20 + i * 0.1, 25) for i in range(6)] + [(60, 40, 58)]    # zincir lookback'ten uzun
+    cs = [Candle("EURUSD", Timeframe.M15, T0 + timedelta(minutes=15 * i), px(r[2]), px(r[0]), px(r[1]), px(r[2]), True) for i, r in enumerate(rows)]
+    stats = {"range_lookback_exhausted": 0}
+    D_.range_zone(cs, len(cs) - 1, PIPETTE, 3, stats)
+    assert stats["range_lookback_exhausted"] == 1            # en dıştaki bulunan mother tam sınırda: daha eski mother olabilirdi
+    monkeypatch.setattr(D_, "MAX_CHAIN_LOOKBACK", 10)
+    rows2 = [(50, 0, 25)] + [(30, 20, 25)] * 2 + [(60, 40, 58)]
+    cs2 = [Candle("EURUSD", Timeframe.M15, T0 + timedelta(minutes=15 * i), px(r[2]), px(r[0]), px(r[1]), px(r[2]), True) for i, r in enumerate(rows2)]
+    stats2 = {"range_lookback_exhausted": 0}
+    assert D_.range_zone(cs2, len(cs2) - 1, PIPETTE, 3, stats2) is not None and stats2["range_lookback_exhausted"] == 0
