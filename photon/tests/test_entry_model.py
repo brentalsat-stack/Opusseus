@@ -167,24 +167,38 @@ def _c(i, o, h, l, c):
 
 
 def test_q_z11_reaction_box_long_base_low_to_top_of_base_group_and_short_mirror():
-    # long: 0 yükseliş (pencere dışı), 1-2 ardışık bearish, 3 taban (bearish, en düşük low), 4 bullish CHoCH mumu
+    # long: 0 yükseliş, 1-2 ardışık bearish, 3 taban (bearish, en düşük low), 4 bullish CHoCH mumu
     m1 = [_c(0, 10, 14, 9, 13), _c(1, 12, 13, 8, 9), _c(2, 9, 11, 6, 7), _c(3, 7, 8, 3, 4), _c(4, 4, 12, 4, 11)]
-    z = reaction_box(m1, 1, 4, Trend.BULL)
-    assert (z.bottom, z.top, z.kind, z.origin) == (px(3), px(13), ZoneKind.DEMAND, Origin.V_REACTION)    # üst = {1,2,3} grubunun en yüksek high'ı
+    z = reaction_box(m1, 3, 4, Trend.BULL)                                     # CHoCH bacağı = [origin=3, break=4]
+    assert (z.bottom, z.top, z.kind, z.origin) == (px(3), px(13), ZoneKind.DEMAND, Origin.V_REACTION)    # üst = {1,2,3} grubunun en yüksek high'ı (pencere dışına taşar)
     assert z.first_index == 1 and z.created_index == 4
-    # pencere başlangıcı grubu keser: start=2 → mum 1 gruba girmez
-    z2 = reaction_box(m1, 2, 4, Trend.BULL)
-    assert (z2.bottom, z2.top) == (px(3), px(11))
+    # taban mumu pencerenin içinden seçilir: geniş pencere daha derin bir dip bulursa o taban olur
+    assert reaction_box(m1, 0, 4, Trend.BULL).bottom == px(3)
     # taban mumu bullish ise (iğne): yalnız kendisi + doğrudan öncesindeki bearish'ler
     m2 = [_c(0, 10, 11, 8, 9), _c(1, 9, 12, 3, 11), _c(2, 11, 15, 10, 14)]
-    z3 = reaction_box(m2, 0, 2, Trend.BULL)
+    z3 = reaction_box(m2, 1, 2, Trend.BULL)
     assert (z3.bottom, z3.top) == (px(3), px(12)) and z3.first_index == 0     # mum 0 bearish → gruba girer; high max(11,12)
     # short simetrik
     s1 = [_c(0, 10, 11, 7, 8), _c(1, 8, 9, 7, 8.5), _c(2, 8.5, 14, 8, 13), _c(3, 13, 20, 12, 19), _c(4, 19, 19, 9, 10)]
-    zs = reaction_box(s1, 1, 4, Trend.BEAR)
+    zs = reaction_box(s1, 3, 4, Trend.BEAR)
     assert (zs.top, zs.bottom, zs.kind) == (px(20), px(7), ZoneKind.SUPPLY)
     assert reaction_box(m1, 4, 3, Trend.BULL) is None                         # geçersiz pencere
     assert reaction_box(m1, 4, 4, Trend.BULL) is not None                     # 1 mumluk bacak: CHoCH mumunun kendisi
+
+
+def test_q_z11_box_comes_from_the_choch_leg_only_not_from_the_mitigation_start_after_a_long_wait():
+    """Q-E8 uzun bekleme: mitigasyon çok önce (visit_start=7, dip 13 pip), CHoCH bacağı yalnız 8..10 → kutu bu bacaktan, mitigasyon dibinden değil."""
+    em, ze15, ze1, m1s, states = build()
+    ch = StructureEvent(Timeframe.M1, EventType.CHOCH, B, px(15), CHOCH_IDX, T0 + timedelta(minutes=CHOCH_IDX), False, level_index=5, origin_index=8)
+    s, out, m1 = run_path(em, ze1, m1s, states, zone(caused_events=[bos()]), ze15, choch=ch)
+    sig = next(e for e in out if e.kind == "SIGNAL")
+    assert s.visit_start == 7 and sig.intent.entry_zone_kind == "EXTREME"
+    box = reaction_box(m1, 8, CHOCH_IDX, B)
+    assert box.bottom == px(13.5) and box.bottom > min(c.low for c in m1[7:])        # mitigasyon başlangıcındaki 13.0 dibi kutuya girmez
+    assert sig.intent.entry_zone_id == box.id
+    # eski tanım (mitigasyondan CHoCH'a) daha derin/geniş bir kutu verirdi
+    old = reaction_box(m1, 7, CHOCH_IDX, B)
+    assert old.bottom == px(13) < box.bottom
 
 
 def test_t_en_06_sl_below_2_pip_rejects_entry():

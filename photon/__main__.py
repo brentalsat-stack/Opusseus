@@ -57,6 +57,17 @@ def main(argv: list[str] | None = None) -> int:
     bt.add_argument("--end", type=date.fromisoformat, required=True, help="dahil")
     bt.add_argument("--balance", help="başlangıç bakiyesi (verilmezse config backtest.initial_balance)")
     bt.add_argument("--out", default="backtest_out")
+    tb = sub.add_parser("trace-bos", help="bir TF'de BOS/CHoCH olaylarının zon bağlamasını adım adım izle (SD-R005 teşhisi)")
+    tb.add_argument("--config", default=str(DEFAULT_PATH))
+    tb.add_argument("--source", choices=["HISTDATA", "OANDA_PRACTICE", "DUKASCOPY"])
+    tb.add_argument("--pair")
+    tb.add_argument("--tf", required=True, choices=["D1", "H4", "M15"])
+    tb.add_argument("--start", type=date.fromisoformat, required=True)
+    tb.add_argument("--end", type=date.fromisoformat, required=True, help="dahil")
+    tb.add_argument("--type", default="BOS", choices=["BOS", "CHOCH", "BOTH"])
+    tb.add_argument("--dir", choices=["BULL", "BEAR"])
+    tb.add_argument("--max-events", type=int, default=12)
+    tb.add_argument("--out", help="verilirse metin dosyaya da yazılır")
     bc = sub.add_parser("backtest-compare", help="varyant karşılaştırma: variants.yaml override'ları, aynı veri, tek tablo")
     bc.add_argument("--config", default=str(DEFAULT_PATH))
     bc.add_argument("--source", choices=["HISTDATA", "OANDA_PRACTICE", "DUKASCOPY"])
@@ -88,6 +99,8 @@ def main(argv: list[str] | None = None) -> int:
         return _zones_cmd(cfg, args)
     if args.cmd == "backtest":
         return _backtest_cmd(cfg, args)
+    if args.cmd == "trace-bos":
+        return _trace_cmd(cfg, args)
     if args.cmd == "backtest-compare":
         return _compare_cmd(cfg, args)
     reports = validate_all(cfg)
@@ -237,6 +250,42 @@ def _backtest_cmd(cfg, args) -> int:
     print(format_report(res))
     paths = write_outputs(res, Path(args.out))
     print("\nDosyalar: " + ", ".join(str(p) for p in paths.values()))
+    return 0
+
+
+def _trace_cmd(cfg, args) -> int:
+    from datetime import timedelta
+    from pathlib import Path
+
+    from .data import tools
+    from .data.models import PriceSide, Timeframe
+    from .data.resample import BoundarySpec, resample
+    from .data.resolver import SubTfResolver
+    from .structure.models import EventType, Trend
+    from .structure.params import StructureParams
+    from .zones.engine import ZoneParams
+    from .zones.report import run_zones
+    from .zones.trace import trace_events
+
+    cfg.require("data_boundaries", "structure_warmup")
+    source = args.source or cfg.get("data.backtest.primary")
+    pair = args.pair or cfg.pairs[0]
+    tf = Timeframe(args.tf)
+    start, end = tools.day_range(args.start, args.end)
+    warm_days = cfg.get(f"warmup_period.{tf.value}")
+    m1 = tools.load_m1(cfg, source, pair, start - timedelta(days=warm_days), end)
+    if not m1:
+        print("önbellekte M1 yok; önce `photon import-histdata` çalıştırın", file=sys.stderr)
+        return 2
+    side = PriceSide(cfg.get("candle_price_side"))
+    candles = [c.to_candle(side) for c in resample(m1, tf, BoundarySpec.from_config(cfg)) if c.complete]
+    st, ze = run_zones(candles, StructureParams.from_config(cfg, pair, tf), ZoneParams.from_config(cfg, pair, tf), start, SubTfResolver(m1, side))
+    types = {"BOS": (EventType.BOS,), "CHOCH": (EventType.CHOCH,), "BOTH": (EventType.BOS, EventType.CHOCH)}[args.type]
+    text = trace_events(st, ze, candles, start, end, types, Trend(args.dir) if args.dir else None, args.max_events)
+    print(text)
+    if args.out:
+        Path(args.out).parent.mkdir(parents=True, exist_ok=True)
+        Path(args.out).write_text(text + "\n", encoding="utf-8")
     return 0
 
 

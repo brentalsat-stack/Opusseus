@@ -333,3 +333,63 @@ def test_period_diagnostics_has_funnel_daily_trend_poi_list_and_traces():
         assert part in txt
     assert any(d0 <= datetime(2021, 8, 25, tzinfo=UTC) for d0, _ in res.trend_log) and res.trend_log
     assert "icra iç trend" in txt
+
+
+# ---------------- PD-R003 rol bağı (V8: orta rol = H4) ----------------
+def test_v8_range_filter_state_is_the_h4_swing_range_and_diag_says_so(v8_run):
+    from photon.structure import pd as PD
+    e, res, m1, cfg = v8_run
+    r = e.runner
+    assert r.model.poi_p.range_tf is Timeframe.M15                                       # config anahtarı ROL adıdır (M15 = orta rol)
+    mid, hi = r._states[Timeframe.M15], r._states[Timeframe.H4]
+    assert PD.swing_range(mid) == PD.swing_range(r.struct[Timeframe.H4].state())          # V8: filtre H4 swing aralığını kullanır
+    assert PD.swing_range(hi) == PD.swing_range(r.struct[Timeframe.D1].state())
+    assert r.model.role_names == {Timeframe.H4: "D1", Timeframe.M15: "H4"}
+    texts = [rec[3] for s in res.setups for rec in s.trace if rec[1] == "GATE_FAIL:range_filter" and "range_low" in rec[3]]
+    assert texts and all("range_tf=M15(rol→H4 swing aralığı)" in t for t in texts)
+
+
+def test_v0_range_filter_state_is_m15_swing_range(tmp_path):
+    from photon.structure import pd as PD
+    cfg = cfg_with_policies(tmp_path)
+    r = StrategyRunner(cfg, "EURUSD", datetime(2021, 8, 30, tzinfo=UTC), D(10000))
+    for q in synth(datetime(2021, 8, 2, tzinfo=UTC), 31 * 1440, seed=3):
+        r.on_m1(q)
+    assert PD.swing_range(r._states[Timeframe.M15]) == PD.swing_range(r.struct[Timeframe.M15].state())
+    assert r.model.role_names == {Timeframe.D1: "D1", Timeframe.H4: "H4", Timeframe.M15: "M15"}
+
+
+# ---------------- zon→BOS izleme aracı ----------------
+def test_trace_explanations_and_event_trace():
+    from photon.zones.trace import explain_pivot, explain_range
+    def c(i, o, h, l, cl):
+        f = lambda x: D(str(x))
+        return Candle("EURUSD", Timeframe.H4, datetime(2021, 9, 1, tzinfo=UTC) + timedelta(hours=4 * i), f(o), f(h), f(l), f(cl), True)
+    pip = D("0.00001")
+    # bearish, bullish(ara; yutmuyor), bullish kopuş → kopuş mumunun hemen önceki mumu karşı yönlü değil → koşu YOK
+    cs = [c(0, 1.1800, 1.1805, 1.1790, 1.1795), c(1, 1.1795, 1.1810, 1.1793, 1.1805), c(2, 1.1805, 1.1850, 1.1804, 1.1848)]
+    assert "koşu YOK" in explain_pivot(cs, 2, pip)
+    # bearish + yutan bullish → zon
+    cs2 = [c(0, 1.1800, 1.1805, 1.1790, 1.1795), c(1, 1.1795, 1.1850, 1.1793, 1.1848)]
+    assert "koşu 1 mum" in explain_pivot(cs2, 1, pip) or "koşu ≥" in explain_pivot(cs2, 1, pip)
+    assert "yeterli geçmiş" in explain_range(cs2, 1, pip, 3)
+
+
+def test_trace_bos_cli_end_to_end(tmp_path, capsys):
+    from photon.__main__ import main
+    from photon.data import CandleStore
+    from photon.tests.test_cli_structure import synth_m1
+    text = (open("config.yaml", encoding="utf-8").read().replace("data_cache/photon.sqlite", str(tmp_path / "c.sqlite"))
+            .replace("logs/photon.log", str(tmp_path / "p.log")).replace("M15: 30,", "M15: 5,").replace("D1: 365, H4: 365", "D1: 20, H4: 20")
+            .replace("M1: 7}", "M1: 1}"))
+    cfgp = tmp_path / "config.yaml"
+    cfgp.write_text(text, encoding="utf-8")
+    store = CandleStore(tmp_path / "c.sqlite")
+    store.put_candles("HISTDATA", synth_m1(datetime(2021, 8, 1, tzinfo=UTC), 40 * 1440))
+    store.close()
+    out = tmp_path / "t.txt"
+    rc = main(["trace-bos", "--config", str(cfgp), "--tf", "M15", "--start", "2021-09-01", "--end", "2021-09-05", "--type", "BOTH",
+               "--max-events", "3", "--out", str(out)])
+    cap = capsys.readouterr().out
+    assert rc == 0 and "Q-Z5 penceresi" in cap and "-- mumlar --" in cap and "sonuç: bu olaya bağlı zonlar" in cap
+    assert out.read_text(encoding="utf-8").startswith(cap.split("\n")[0])

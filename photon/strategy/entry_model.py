@@ -147,12 +147,13 @@ def _window_zones(ze: ZoneEngine, choch: StructureEvent) -> str:
             f"same_kind_detail=[{', '.join(f'{z.id}:{z.origin.value}:valid={z.valid}:flip={z.is_flip}:caused={len(z.caused_events)}' for z in same)}]")
 
 
-def _range_detail(view: "MarketView", poi_p: POIParams, s: Setup) -> str:
+def _range_detail(view: "MarketView", poi_p: POIParams, s: Setup, role_names: Optional[Mapping[Timeframe, str]] = None) -> str:
     st = view.states.get(poi_p.range_tf)
     r = swing_range(st) if st is not None else None
     if r is None:
         return " range=None"
-    return (f" range_tf={poi_p.range_tf.value} range_low={r[0]}@idx{st.swing_low.index} range_high={r[1]}@idx{st.swing_high.index} "
+    real = (role_names or {}).get(poi_p.range_tf)
+    return (f" range_tf={poi_p.range_tf.value}{'(rol→' + real + ' swing aralığı)' if real and real != poi_p.range_tf.value else ''} range_low={r[0]}@idx{st.swing_low.index} range_high={r[1]}@idx{st.swing_high.index} "
             f"range_extreme_confirmed={(st.swing_low if st.swing_trend is Trend.BEAR else st.swing_high).confirmed} "
             f"zone_eq={s.poi.eq} poi={s.poi.id} poi_tf={s.poi.tf.value} m15_trend={st.swing_trend.value}")
 
@@ -202,17 +203,18 @@ def choose_entry_zone(choch: StructureEvent, ze: ZoneEngine, requires_sweep: boo
     return None, "NONE"
 
 
-def reaction_box(m1: Sequence[Candle], start: int, end: int, direction: Trend) -> Optional[Zone]:
-    """Q-Z11 (kullanıcı tanımı): mitigasyondan (start) M1 CHoCH mumuna (end, dahil) kadarki V tepkisinin giriş kutusu.
-    Long: alt = penceredeki en düşük low (ilk yapan mum = taban mumu); üst = taban mumu ile onu doğrudan öncesindeki ardışık
-    karşı yönlü (bearish) mumların en yüksek high'ı. Short simetrik (en yüksek high; üst/alt ters; karşı yönlü = bullish)."""
-    if end < start or start < 0 or end >= len(m1):
+def reaction_box(m1: Sequence[Candle], origin: int, end: int, direction: Trend) -> Optional[Zone]:
+    """Q-Z11 (kullanıcı tanımı, düzeltilmiş): CHoCH'u yapan BACAĞIN giriş kutusu. Pencere = [origin_index, break_index] (CHoCH olayının kendi
+    bacağı; mitigasyon başlangıcı / Q-E8 bekleme süresi pencereyi belirlemez).
+    Long: V tabanı = penceredeki en düşük low (ilk yapan mum = taban mumu); kutu alt = o low; üst = taban mumu + onu hemen öncesindeki
+    kesintisiz karşı renkli (bearish) mumların (pencere dışına taşabilir) en yüksek high'ı. Short simetrik (en yüksek high; karşı renkli = bullish)."""
+    if end < origin or origin < 0 or end >= len(m1):
         return None
     long = direction is Trend.BULL
-    idx = range(start, end + 1)
+    idx = range(origin, end + 1)
     base = min(idx, key=lambda i: (m1[i].low, i)) if long else max(idx, key=lambda i: (m1[i].high, -i))
     first = base
-    while first - 1 >= start and ((m1[first - 1].close < m1[first - 1].open) if long else (m1[first - 1].close > m1[first - 1].open)):
+    while first - 1 >= 0 and ((m1[first - 1].close < m1[first - 1].open) if long else (m1[first - 1].close > m1[first - 1].open)):
         first -= 1
     grp = m1[first:base + 1]
     if long:
@@ -268,6 +270,7 @@ class EntryModel:
         self.mgmt = mgmt
         self.clock, self.tracker, self.news = clock, tracker, news
         self.setups: list[Setup] = []
+        self.role_names: dict[Timeframe, str] = {}   # rol → gerçek TF adı (profil; yalnız teşhis metinleri için)
         self.archive: list[Setup] = []          # POI geçersizleşip izlemeden çıkan kurulumlar (huni raporu için saklanır)
         self.book = SignalBook(params.duplicate_policy, params.opposite_policy)
         self._engines: dict[str, ZoneEngine] = {}
@@ -410,7 +413,7 @@ class EntryModel:
         zone, kind = ((None, "NONE") if self.p.entry_zone_choice == "EXTREME_ALWAYS"
                       else choose_entry_zone(choch, ze1, self.p.decisional_flip_requires_sweep))
         if zone is None:                                     # Q-Z11: flip yoksa V tepki kutusu (zon algılamasından bağımsız)
-            zone = reaction_box(view.m1, s.visit_start, choch.break_index, s.direction)
+            zone = reaction_box(view.m1, choch.origin_index if choch.origin_index is not None else s.visit_start, choch.break_index, s.direction)
             kind = "EXTREME" if zone is not None else "NONE"
         s.to(State.ENTRY_READY, t, f"CHOCH:{choch.time:%H:%M}")
         s.log(t, "CHOCH", f"choch_time={choch.time.isoformat()} level={choch.level} origin_index={choch.origin_index} "
@@ -419,7 +422,8 @@ class EntryModel:
             s.log(t, "NO_ENTRY_ZONE", _window_zones(ze1, choch))
             return self._abort(s, t, "NO_ENTRY_ZONE", "EN-R001/5", "flip yok ve V tepki kutusu çizilemedi (geçersiz pencere)")
         s.entry_zone, s.entry_zone_kind = zone, kind
-        s.log(t, "ENTRY_ZONE_OK", f"{kind} {zone.id} top={zone.top} bottom={zone.bottom}")
+        s.log(t, "ENTRY_ZONE_OK", f"{kind} {zone.id} top={zone.top} bottom={zone.bottom} "
+                                  f"height_pips={(zone.top - zone.bottom) / (self.p.pipette * 10):.1f} idx={zone.first_index}..{zone.created_index}")
         liq = s.liquidation
         vshape = v_shape_exit(s.visit_start, choch.break_index, self.p.v_shape_max_candles)
         return self._finalize(s, view, zone, kind, liq, vshape)
@@ -457,7 +461,7 @@ class EntryModel:
         if not res.passed:
             g = res.failed_gates[0]
             for fg in res.failed_gates:
-                s.log(t, f"GATE_FAIL:{fg.name}", fg.reason + (_range_detail(view, self.poi_p, s) if fg.name == "range_filter" else ""))
+                s.log(t, f"GATE_FAIL:{fg.name}", fg.reason + (_range_detail(view, self.poi_p, s, self.role_names) if fg.name == "range_filter" else ""))
             return self._abort(s, t, f"GATE:{g.name}", g.rule, g.reason)
         side = side_of(s.direction)
         plan = plan_entry(ZoneBounds(zone.top, zone.bottom), side, self.stop_p)

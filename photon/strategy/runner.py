@@ -105,6 +105,7 @@ class StrategyRunner:
         self.model = EntryModel(pair, EntryParams.from_config(cfg, pair), POIParams.from_config(cfg), StopParams.from_config(cfg, pair),
                                 SizingParams.from_config(cfg, pair), SessionClock.from_config(cfg),
                                 DayLossTracker.from_config(cfg), ManagementParams.from_config(cfg), news)
+        self.model.role_names = {role: real.value for role, real in pf.role_map if real is not None}
         self._watched: set[str] = set()
         self._states: dict[Timeframe, object] = {}
 
