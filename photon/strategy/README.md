@@ -40,7 +40,7 @@ Warm-up (`live_from` öncesi) kurulumlar ilerlemez ve sinyal üretilmez.
 | ID | Karar | Uygulama |
 |---|---|---|
 | **Q-E8** | **(b) — KULLANICI KARARI** | İzin reddinde kurulum `POI_MITIGATED`'da BEKLER (WATCHING'e dönmez). POI geçersizleşene (invalidation) kadar her M1 mumunda izin (EN-R006 + Q-P1 M15 CHoCH, EN-R007 çift BOS) yeniden değerlendirilir; açılınca `CONFIRMATION_PENDING` → M1 giriş araması sürer. Bekleme süresince limit sinyal YOK. **§17 tablosunda "izin yok → WATCHING" satırı bu karara göre değişti** (`state_machine.py` yorumu + `Setup.wait_reason`). Testler: `test_q_e8_*`. |
-| Q-E5 | REJECT | `duplicate_signal_policy: REJECT` — bir POI = en fazla bir aktif sinyal (T-DUP-01). |
+| Q-E5 | REJECT (**kullanıcı düzeltmesi, V8 gerçek veri teşhisi**) | `duplicate_signal_policy: REJECT` — bir POI (kurulum = POI+yön) **ömür boyu en fazla bir sinyal** üretir (iptal/kapanış sonrası yeniden sinyal yok). Önceki uygulama yalnızca eşzamanlı AKTİF ikinci sinyali engelliyordu; kurulum kapanınca/iptal olunca WATCHING'e dönüp aynı POI'den tekrar sinyal veriyordu → trades.csv'de aynı `id` tekrarlı satırlar (V0'da da). Eski davranış `REJECT_WHILE_ACTIVE` olarak korunur. Test: `test_reject_policy_gives_at_most_one_signal_and_one_trade_per_poi`, `test_v0_profile_also_has_unique_trade_ids_under_reject`. |
 | Q-E6 | REJECT | `opposite_signal_policy: REJECT`. |
 | Q-E1/Q-E2/Q-E7/Q-E9 | kabul | Aşağıdaki metinler aynen geçerli. |
 | Q-E3 | kabul | RISK girişinde liquidation kapısı yok (varsayılan giriş CONFIRMATION). |

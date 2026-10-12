@@ -16,7 +16,8 @@ from photon.strategy.entry_model import EntryParams
 from photon.strategy.poi import POIParams
 from photon.strategy.profile import PROFILES, profile_from_config
 from photon.strategy.runner import StrategyRunner
-from photon.strategy.state_machine import State
+from photon.strategy.state_machine import Setup, State
+from photon.structure.models import Trend
 from photon.tests.test_management import intent_for_output
 from photon.tests.test_runner import cfg_with_policies, synth
 
@@ -248,3 +249,87 @@ def test_compare_cli_detail_csv_only_and_skip_missing_news(tmp_path, capsys):
     assert not (tmp_path / "o" / "V8b").exists()
     assert main(["backtest-compare", "--config", str(cfgp), "--start", "2021-09-01", "--end", "2021-09-02", "--variants", "variants.yaml",
                  "--only", "NOPE", "--out", str(tmp_path / "o2")]) == 2
+
+
+# ---------------- Q-E5: bir POI = en fazla bir sinyal (ömür boyu); mükerrer işlem kök nedeni ----------------
+def _scenario(policy):
+    from collections import Counter
+    m1 = synth(datetime(2021, 7, 1, tzinfo=UTC), 75 * 1440, seed=7, amp=18)
+    import tempfile, pathlib
+    cfg = apply_overrides(cfg_with_policies(pathlib.Path(tempfile.mkdtemp())), {**V8, "duplicate_signal_policy": policy})
+    res = BacktestEngine(cfg, "EURUSD", datetime(2021, 8, 5, tzinfo=UTC), datetime(2021, 9, 14, tzinfo=UTC), D(10000)).run(m1)
+    return res, Counter(t.id for t in res.trades), Counter(e.setup.id for e in res.events if e.kind == "SIGNAL")
+
+
+def test_reject_policy_gives_at_most_one_signal_and_one_trade_per_poi():
+    old, old_ids, old_sig = _scenario("REJECT_WHILE_ACTIVE")          # eski davranış: yalnız eşzamanlı aktif sinyal engellenirdi
+    assert max(old_ids.values()) >= 2                                  # kök neden: aynı kurulum kapanış/iptal sonrası yeniden sinyal verir (mükerrer id)
+    new, ids, sig = _scenario("REJECT")
+    assert ids and max(ids.values()) == 1 and max(sig.values()) == 1
+    assert len({(t.id, t.fill_time) for t in new.trades}) == len(new.trades) and len({t.no for t in new.trades}) == len(new.trades)
+    assert all(s.n_signals <= 1 for s in new.setups)
+
+
+def test_v0_profile_also_has_unique_trade_ids_under_reject(synth_result_v0):
+    res = synth_result_v0
+    ids = [t.id for t in res.trades]
+    assert res.trades and len(ids) == len(set(ids))
+    sig = [e.setup.id for e in res.events if e.kind == "SIGNAL"]
+    assert len(sig) == len(set(sig))
+
+
+@pytest.fixture(scope="module")
+def synth_result_v0(tmp_path_factory):
+    cfg = cfg_with_policies(tmp_path_factory.mktemp("v0"))
+    m1 = synth(datetime(2021, 7, 1, tzinfo=UTC), 75 * 1440, seed=7, amp=18)
+    return BacktestEngine(cfg, "EURUSD", datetime(2021, 8, 5, tzinfo=UTC), datetime(2021, 9, 14, tzinfo=UTC), D(10000)).run(m1)
+
+
+def test_signal_book_policies_on_reused_setup():
+    from photon.strategy.entry_model import SignalBook
+    from photon.tests.test_entry_model import zone
+    z = zone()
+    s = Setup("X", "EURUSD", z, Trend.BULL)
+    s.n_signals = 1
+    assert SignalBook("REJECT", "REJECT").check(s, datetime(2021, 9, 1, tzinfo=UTC))[0] == "DUPLICATE_POI"
+    for pol in ("REJECT_WHILE_ACTIVE", "ALLOW", "REPLACE"):
+        assert SignalBook(pol, "REJECT").check(s, datetime(2021, 9, 1, tzinfo=UTC)) is None
+
+
+def test_engine_refuses_a_second_open_position_for_the_same_setup(tmp_path):
+    eng, s, it = _engine_with_pending(tmp_path)
+    eng._pre_step(touch_candle(eng, it, datetime(2021, 9, 1, 9, 0, tzinfo=UTC)))
+    assert s.id in eng.positions
+    with pytest.raises(RuntimeError):
+        eng._fill_entry(s, it, touch_candle(eng, it, datetime(2021, 9, 1, 9, 1, tzinfo=UTC)), datetime(2021, 9, 1, 9, 1, tzinfo=UTC))
+
+
+# ---------------- Q-V8-5: hedefler H4'te kalır ----------------
+def test_v8_targets_stay_on_h4_first_h4_swing_then_next_h4_zone_and_hold_confirmation_on_h4():
+    from photon.execution.management import H4_LEG, M15_LEG, ManagementParams, build_plan
+    from photon.strategy.permission import TrendClass
+    from photon.tests.test_management import STATES, ENTRY, STOP, px
+    from photon.zones.models import Origin, Zone, ZoneKind
+    cfg = v8cfg({"management_second_target": "NEXT_MID_ZONE"})
+    p = ManagementParams.from_config(cfg)
+    assert p.second_target == "NEXT_MID_ZONE" and ManagementParams.from_config(load_config()).second_target == "SWING_HI"
+    mk = lambda zid, lo, hi, kind=ZoneKind.SUPPLY, valid=True: Zone(zid, Timeframe.H4, kind, Origin.PIVOT, "CANDLE", px(hi), px(lo), 0, 1,
+                                                                     datetime(2021, 9, 1, tzinfo=UTC), caused_events=[object()] if valid else [])
+    near, far = mk("near", 90, 95), mk("far", 120, 125)                 # ilk hedef M15-rolü swing = px(60); arz zonları ötesinde
+    plan = build_plan(Side.LONG, TrendClass.PRO, ENTRY, STOP, STATES, [far, near, mk("bad", 100, 105, valid=False)], p)
+    legs = {l.name: l for l in plan.legs}
+    assert legs[M15_LEG].price == px(60) and legs[M15_LEG].pct == 60
+    assert legs[H4_LEG].price == px(90) and legs[H4_LEG].pct == 20 and legs[H4_LEG].hold_requires == "H4_CHOCH"     # en yakın geçerli zonun yakın kenarı
+    none = build_plan(Side.LONG, TrendClass.PRO, ENTRY, STOP, STATES, [], p)                                      # sonraki hedef yok → %20 ilk hedefe
+    assert H4_LEG not in {l.name for l in none.legs} and {l.name: l for l in none.legs}[M15_LEG].pct == 80
+    assert profile_from_config(v8cfg()).hold_tf is Timeframe.H4 and profile_from_config(load_config()).hold_tf is Timeframe.H4
+
+
+def test_period_diagnostics_has_funnel_daily_trend_poi_list_and_traces():
+    from photon.backtest.report import period_diagnostics
+    res, *_ = _scenario("REJECT")
+    txt = period_diagnostics(res, datetime(2021, 8, 20, tzinfo=UTC), datetime(2021, 9, 1, tzinfo=UTC))
+    for part in ("1. Dönem içi huni", "2. Gün gün trend", "3. Dönemde yaşayan POI", "4. Kurulum izleri", "D1 ", "H4 "):
+        assert part in txt
+    assert any(d0 <= datetime(2021, 8, 25, tzinfo=UTC) for d0, _ in res.trend_log) and res.trend_log
+    assert "icra iç trend" in txt

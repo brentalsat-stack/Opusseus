@@ -79,6 +79,8 @@ class Setup:
     cancelled: Optional[str] = None              # kalıcı iptal nedeni (POI geçersiz)
     notes: list[str] = field(default_factory=list)
     wait_reason: str = ""                       # POI_MITIGATED'da bekleme nedeni (Q-E8, kullanıcı kararı)
+    n_signals: int = 0                          # bu kurulumdan (POI+yön) ömür boyu üretilen sinyal sayısı — Q-E5 REJECT: en fazla 1
+    dup_noted: bool = False
     trend_class: str = "UNKNOWN"                # son izin değerlendirmesindeki trend sınıfı (PRO/MIXED/COUNTER_HTF/UNKNOWN) — huni raporu için
     trace: list = field(default_factory=list)   # (zaman, aşama, trend sınıfı, ayrıntı): yalnız teşhis/rapor; karar vermez
 

@@ -242,6 +242,8 @@ class SignalBook:
 
     def check(self, new: Setup, time: datetime) -> Optional[tuple[str, str]]:
         """None = izin; aksi halde (neden, kural). REPLACE: bekleyen eski emir iptal edilir (açık pozisyon varsa ret)."""
+        if self.dup == "REJECT" and new.n_signals > 0:         # Q-E5 (kullanıcı: bir POI = en fazla bir sinyal, ömür boyu): iptal/kapanış sonrası yeniden sinyal yok
+            return "DUPLICATE_POI", "FINAL_SPEC §19 / T-DUP-01 / Q-E5"
         for s in self.active():
             if s is new:
                 continue
@@ -336,6 +338,12 @@ class EntryModel:
         return perm, cls
 
     def _watching(self, s: Setup, view: MarketView, c: Candle) -> list[SignalEvent]:
+        if self.p.duplicate_policy == "REJECT" and s.n_signals > 0:      # Q-E5: POI zaten bir sinyal üretti → tekrar izlenmez
+            if not s.dup_noted:
+                s.dup_noted = True
+                s.reject(view.now, "DUPLICATE_POI", "FINAL_SPEC §19 / T-DUP-01 / Q-E5", "POI daha önce sinyal üretti")
+                s.log(view.now, "DUPLICATE_POI_SKIP", f"n_signals={s.n_signals}")
+            return []
         if self.p.entry_type != "RISK":
             pz, pp = s.poi, self.p.pipette           # ucuz geometri ön kontrolü (rafine zonlar POI'nin içinde): dokunuş yoksa çık
             if c.low > pz.top + pp or c.high < pz.bottom - pp:
@@ -478,6 +486,7 @@ class EntryModel:
                               "MG-R001", "MG-R002", "MG-R005"),
                              (s.choch.break_index - s.visit_start) if (s.choch is not None and s.visit_start is not None) else None)
         s.intent = intent
+        s.n_signals += 1
         s.log(t, "SIGNAL", f"{kind} entry={plan.entry} stop={plan.stop}")
         s.to(State.ORDER_PENDING, t, f"SIGNAL:{kind}")
         return [SignalEvent("SIGNAL", s, t, intent)]

@@ -61,6 +61,7 @@ class CommissionModel:
 
 @dataclass
 class Trade:
+    no: int                  # dolum sırası (1..N): aynı kurulum kimliği ALLOW politikasıyla tekrar işlem açarsa satırları ayırır
     id: str
     setup: Setup
     intent: OrderIntent
@@ -131,6 +132,7 @@ class BacktestResult:
     unfilled_orders: int
     candles: int
     equity: list[tuple[datetime, Decimal]] = field(default_factory=list)
+    trend_log: list = field(default_factory=list)
     setups: list = field(default_factory=list)          # tüm kurulumlar (aktif + arşiv): huni/teşhis raporu
     runner: object = None
 
@@ -156,12 +158,16 @@ class BacktestEngine:
         self.n_candles = 0
         self.clock = self.model.clock
         self.m15_exec = self.runner.profile.exec_tf is not Timeframe.M1     # V8: model M15'te adımlanır → emir iptali M1 mumlarıyla burada
+        self.trade_seq = 0
+        self.trend_log: list[tuple[datetime, dict]] = []     # teşhis: 00/08/16 UTC'de TF trend anlık görüntüleri (gün gün trend raporu)
         self.extra_stats = {"news_orders_cancelled": 0, "news_exits": 0, "blackout_fill_blocked": 0}
 
     # ---- mum başı simülasyon (giriş modeli adımından ÖNCE) ----
     def _pre_step(self, c: Candle) -> None:
         self.n_candles += 1
         now = c.open_time
+        if now.minute == 0 and now.hour in (0, 8, 16):
+            self._snapshot_trends(now)
         news = self.clock.news
         in_news = news is not None and news.in_window(now)
         if in_news:
@@ -211,9 +217,21 @@ class BacktestEngine:
             self.extra_stats["news_exits"] += 1
             self._close(tr, now)
 
+    def _snapshot_trends(self, now: datetime) -> None:
+        snap = {}
+        for tf, st in self.runner.struct.items():
+            m = st.state()
+            snap[tf.value] = (m.swing_trend.value, m.swing_low.price if m.swing_low else None, m.swing_high.price if m.swing_high else None,
+                              (m.swing_low.confirmed if m.swing_low else None, m.swing_high.confirmed if m.swing_high else None))
+        snap["exec_internal"] = self.runner.m1_struct.state().internal_trend.value
+        self.trend_log.append((now, snap))
+
     def _fill_entry(self, s: Setup, it: OrderIntent, c: Candle, now: datetime) -> None:
+        if s.id in self.positions:                                   # değişmez: aynı kurulum için aynı anda ikinci açık pozisyon olamaz
+            raise RuntimeError(f"{s.id}: ikinci açık pozisyon (kurulum kimliği tekrar kullanıldı)")
         pos = self.pm.open(s.id, it.side, it.entry, it.stop, it.lots, it.plan, now)
-        tr = Trade(s.id, s, it, pos, it.time, now, balance_before=self.runner.balance)
+        self.trade_seq += 1
+        tr = Trade(self.trade_seq, s.id, s, it, pos, it.time, now, balance_before=self.runner.balance)
         tr.commission += self.commission.fee(it.lots, it.entry)
         self.model.mark_filled(s, now)
         self.positions[s.id] = tr
@@ -224,7 +242,7 @@ class BacktestEngine:
         direction = Trend.BULL if it.side is Side.LONG else Trend.BEAR
         h4_ok = False
         if not entry_candle and any(l.name == H4_LEG and l.name not in pos._filled_legs for l in pos.plan.legs):
-            h4_ok = h4_choch_since(self.runner.struct[self.runner.profile.hi].events, direction, pos.opened_at)
+            h4_ok = h4_choch_since(self.runner.struct[self.runner.profile.hold_tf].events, direction, pos.opened_at)
         fills = self.pm.on_candle(pos, c, now, h4_choch_confirmed=h4_ok, entry_candle=entry_candle)
         for f in fills:
             tr.commission += self.commission.fee(f.lots, f.price)
@@ -258,4 +276,4 @@ class BacktestEngine:
         return BacktestResult(self.pair, self.start, self.end, self.initial, self.runner.balance, self.closed,
                               list(self.positions.values()), self.events, self.commission,
                               {**self.pm.stats, **self.extra_stats}, self.runner.limit_report(), len(self.pending), self.n_candles, self.equity,
-                              self.model.setups + self.model.archive, self.runner)
+                              self.trend_log, self.model.setups + self.model.archive, self.runner)

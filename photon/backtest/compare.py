@@ -26,7 +26,7 @@ from .engine import BacktestEngine
 from .report import CLASSES, compute_metrics, monthly_funnel, stop_quick_ratio, write_outputs, funnel
 
 # varsayılan config'te bulunmayan ama kodda varsayılanı olan (davranışı değiştirmeyen) anahtarlar: override ile eklenebilir
-NEW_KEYS_ALLOWED = {"entry_zone_choice", "execution_profile", "session_gate", "min_refine_pips", "fib_entry_pct", "news_blackout"}
+NEW_KEYS_ALLOWED = {"entry_zone_choice", "execution_profile", "session_gate", "min_refine_pips", "fib_entry_pct", "news_blackout", "management_second_target"}
 D0 = Decimal(0)
 
 
@@ -94,6 +94,8 @@ def write_detail_csv(res, out: Path, d0: datetime, d1: datetime) -> Path:
     (UTC + Istanbul; sinyal mumu açılışı/kapanışı, dolum mumu, kapanış, giriş/stop/hedefler, çıkışlar, R)."""
     from zoneinfo import ZoneInfo
     ist = ZoneInfo("Europe/Istanbul")
+    from .report import period_diagnostics
+    (out / f"{res.pair}_diag_period.txt").write_text(period_diagnostics(res, d0, d1) + "\n", encoding="utf-8")
     p = out / f"{res.pair}_trades_detail.csv"
     rows = [t for t in res.trades + res.open_trades if d0 <= t.fill_time < d1]
     prof = res.runner.profile if res.runner is not None else None
@@ -102,13 +104,13 @@ def write_detail_csv(res, out: Path, d0: datetime, d1: datetime) -> Path:
     lab = lambda n: shift.get(n, n)
     with p.open("w", newline="", encoding="utf-8") as fh:
         w = csv.writer(fh)
-        w.writerow(["no", "side", "poi_tf", "poi_id", "trend_class", "entry_zone_kind", "signal_time_utc", "signal_time_istanbul",
+        w.writerow(["no", "trade_id", "side", "poi_tf", "poi_id", "trend_class", "entry_zone_kind", "signal_time_utc", "signal_time_istanbul",
                     "fill_time_utc", "fill_time_istanbul", "close_time_utc", "close_time_istanbul", "entry", "stop", "pip_risk", "targets",
                     "exits", "r_gross", "r_net", "outcome", "status", "notes"])
         for n, t in enumerate(sorted(rows, key=lambda t: t.fill_time), 1):
             it = t.intent
             ct = t.close_time
-            w.writerow([n, it.side.value, it.poi_tf.value, it.poi_id, it.trend_class, it.entry_zone_kind, it.time.isoformat(),
+            w.writerow([n, t.id, it.side.value, it.poi_tf.value, it.poi_id, it.trend_class, it.entry_zone_kind, it.time.isoformat(),
                         it.time.astimezone(ist).strftime("%Y-%m-%d %H:%M"), t.fill_time.isoformat(), t.fill_time.astimezone(ist).strftime("%Y-%m-%d %H:%M"),
                         ct.isoformat() if ct else "", ct.astimezone(ist).strftime("%Y-%m-%d %H:%M") if ct else "", it.entry, it.stop, it.pip_risk,
                         "|".join(f"{lab(l.name)}@{l.price}x{l.pct}%" for l in it.plan.legs),

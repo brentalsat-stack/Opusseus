@@ -27,10 +27,10 @@ variants:
 # ---- V8: M15 İCRA MODELİ (T-M15BT, EURUSD Eylül 2021 referans videosu) — kullanıcı kararı: ayrı profil, varsayılan config değişmez.
 # execution_profile=M15 → rol kayması: HTF=D1 (rol "4H"), MTF=H4 (rol "M15": POI + yapı + izin CHoCH'u), icra=M15 (rol "M1": CHoCH, giriş kutusu, liquidation).
 # entry_price_mode FIB25_*: "%25 kuralı" (AMBIGUOUS, Q-V8-2). session_gate=false: seans penceresi kapısı yok, rollover yasağı (21–23 UTC) yeni emir + dolumda geçerli.
-# min_refine_pips=3: 3 pipten küçük POI rafine edilmez. Yönetim (MG) aynı: 20%@4R, PT 60/20, CT 80 — hedef TF'leri rolle kayar (Q-V8-5).
+# min_refine_pips=3: 3 pipten küçük POI rafine edilmez. Yönetim: 20%@4R (risk kaldırma), %60 ilk H4 zayıf swing, %20 sonraki H4 hedefi (management_second_target: NEXT_MID_ZONE), tutma onayı H4 CHoCH; CT 80 (Q-V8-5, kullanıcı kararı).
   - name: V8a
     desc: "M15 icra modeli, %25 kuralı proximal'den, haber filtresi yok"
-    overrides: {execution_profile: M15, entry_price_mode: FIB25_FROM_PROXIMAL, session_gate: false, min_refine_pips: 3}
+    overrides: {execution_profile: M15, entry_price_mode: FIB25_FROM_PROXIMAL, session_gate: false, min_refine_pips: 3, management_second_target: NEXT_MID_ZONE}
   - name: V8b
     desc: "V8a + haber penceresi (olay ±30 dk: yeni emir/dolum yok, bekleyen iptal, açık pozisyon kapatılır) — data_samples/news_2021.csv gerekir"
     overrides:
@@ -38,10 +38,11 @@ variants:
       entry_price_mode: FIB25_FROM_PROXIMAL
       session_gate: false
       min_refine_pips: 3
+      management_second_target: NEXT_MID_ZONE
       news_blackout: {file: data_samples/news_2021.csv, window_min: 30}
   - name: V8c
     desc: "V8a ama %25 DISTAL'dan (alternatif yorum, Q-V8-2)"
-    overrides: {execution_profile: M15, entry_price_mode: FIB25_FROM_DISTAL, session_gate: false, min_refine_pips: 3}
+    overrides: {execution_profile: M15, entry_price_mode: FIB25_FROM_DISTAL, session_gate: false, min_refine_pips: 3, management_second_target: NEXT_MID_ZONE}
 
 # V7: işlemleri ETKİLEMEZ — taban varyantın işlemleri için V-shape N'e göre puan dağılımı (config'teki N dahil edilir)
 vshape_report:

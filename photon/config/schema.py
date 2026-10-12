@@ -235,7 +235,7 @@ MODULES: dict[str, ModuleSpec] = {
     "strategy": ModuleSpec((  # POI-R004, EN-R001..R009
         R("entry_type", one_of("RISK", "CONFIRMATION", "DOUBLE_CONFIRMATION")),
         R("decisional_flip_requires_sweep", is_bool),
-        R("duplicate_signal_policy", one_of("REJECT", "REPLACE", "ALLOW")),
+        R("duplicate_signal_policy", one_of("REJECT", "REJECT_WHILE_ACTIVE", "REPLACE", "ALLOW")),
         R("opposite_signal_policy", one_of("REJECT", "ALLOW")),
         R("require_pd_alignment", is_bool),
         R("counter_htf_require_double_bos", is_bool),

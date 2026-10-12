@@ -351,7 +351,7 @@ def format_report(res: BacktestResult, tz: ZoneInfo = ISTANBUL) -> str:
     return "\n".join(L)
 
 
-TRADE_COLS = ["id", "side", "poi_tf", "trend_class", "session", "signal_candle_open_utc", "signal_time_utc", "fill_candle_open_utc", "fill_after_signal_min", "close_time_utc",
+TRADE_COLS = ["no", "id", "side", "poi_tf", "trend_class", "session", "signal_candle_open_utc", "signal_time_utc", "fill_candle_open_utc", "fill_after_signal_min", "close_time_utc",
               "fill_time_istanbul", "entry", "stop", "pip_risk", "lots", "risk_amount", "m15_target_r", "closer_than_4r",
               "r_gross", "r_net", "gross_pnl", "commission", "net_pnl", "balance_before", "balance_after", "outcome",
               "journal_tag", "poi_score", "poi_max_score", "exits", "notes", "news"]
@@ -360,7 +360,7 @@ TRADE_COLS = ["id", "side", "poi_tf", "trend_class", "session", "signal_candle_o
 def _trade_row(t: Trade, tz: ZoneInfo) -> dict:
     it = t.intent
     m15r = t.m15_target_r
-    return {"id": t.id, "side": it.side.value, "poi_tf": it.poi_tf.value, "trend_class": it.trend_class, "session": it.session,
+    return {"no": t.no, "id": t.id, "side": it.side.value, "poi_tf": it.poi_tf.value, "trend_class": it.trend_class, "session": it.session,
             "signal_candle_open_utc": (it.time - timedelta(minutes=1)).isoformat(), "signal_time_utc": it.time.isoformat(),
             "fill_candle_open_utc": t.fill_time.isoformat(), "fill_after_signal_min": int((t.fill_time - it.time).total_seconds() // 60),
             "close_time_utc": t.close_time.isoformat() if t.close_time else "",
@@ -388,18 +388,18 @@ def write_outputs(res: BacktestResult, out: Path, tz: ZoneInfo = ISTANBUL) -> di
     p = out / f"{res.pair}_fills.csv"
     with p.open("w", newline="", encoding="utf-8") as fh:
         w = csv.writer(fh)
-        w.writerow(["trade_id", "time_utc", "leg", "price", "lots", "r", "reason"])
+        w.writerow(["trade_no", "trade_id", "time_utc", "leg", "price", "lots", "r", "reason"])
         for t in res.trades:
             for f in t.position.fills:
-                w.writerow([t.id, f.time.isoformat(), f.leg, f.price, f.lots, f"{f.r:.3f}", f.reason])
+                w.writerow([t.no, t.id, f.time.isoformat(), f.leg, f.price, f.lots, f"{f.r:.3f}", f.reason])
     paths["fills"] = p
     p = out / f"{res.pair}_journal.csv"
     with p.open("w", newline="", encoding="utf-8") as fh:
         w = csv.writer(fh)
-        w.writerow(["trade_id", "journal_tag", "fill_time_utc", "r_gross", "poi_score", "criteria_earned", "criteria_not_earned", "rules"])
+        w.writerow(["trade_no", "trade_id", "journal_tag", "fill_time_utc", "r_gross", "poi_score", "criteria_earned", "criteria_not_earned", "rules"])
         for t in res.trades:
             it = t.intent
-            w.writerow([t.id, t.journal_tag, t.fill_time.isoformat(), f"{t.r_gross:.3f}", it.poi_score,
+            w.writerow([t.no, t.id, t.journal_tag, t.fill_time.isoformat(), f"{t.r_gross:.3f}", it.poi_score,
                         "|".join(n for n, _, e in it.criteria if e), "|".join(n for n, _, e in it.criteria if e is False),
                         "|".join(it.rules)])
     paths["journal"] = p
@@ -433,3 +433,75 @@ def write_outputs(res: BacktestResult, out: Path, tz: ZoneInfo = ISTANBUL) -> di
     p.write_text(format_report(res, tz) + "\n", encoding="utf-8")
     paths["report"] = p
     return paths
+
+
+def period_diagnostics(res: BacktestResult, d0: datetime, d1: datetime, tz: ZoneInfo = ISTANBUL, max_lines: int = 600) -> str:
+    """Belirli dönem için teşhis: (1) dönem içi huni, (2) gün gün TF trend durumu (00/08/16 UTC), (3) dönemde yaşayan POI'ler ve akıbetleri,
+    (4) kurulum izleri (aşama aşama, ayrıntılı). Yalnızca raporlar."""
+    L: list[str] = [f"═══ DÖNEM TEŞHİSİ {d0:%Y-%m-%d} → {(d1 - timedelta(seconds=1)):%Y-%m-%d} (UTC) ═══", ""]
+    # 1) huni
+    cnt: dict[str, Counter] = defaultdict(Counter)
+    for s in res.setups:
+        for t, stage, cls, _ in s.trace:
+            if d0 <= t < d1:
+                cnt[stage][cls] += 1
+    L.append("── 1. Dönem içi huni (olay sayıları, trend sınıfı kırılımı) ──")
+    L.append(f"  {'aşama':<62}" + "".join(f"{c:>13}" for c in CLASSES + ("TOPLAM",)))
+    for stage in sorted(cnt, key=lambda k: (["MITIGATED", "PERMISSION", "CHOCH", "NO_ENTRY", "ENTRY_ZONE", "GATE_FAIL", "SIGNAL", "DUPLICATE"].index(
+            next((x for x in ["MITIGATED", "PERMISSION", "CHOCH", "NO_ENTRY", "ENTRY_ZONE", "GATE_FAIL", "SIGNAL", "DUPLICATE"] if k.startswith(x)), "DUPLICATE")), k)):
+        c = cnt[stage]
+        L.append(f"  {stage:<62}" + "".join(f"{c.get(k, 0):>13}" for k in CLASSES) + f"{sum(c.values()):>13}")
+    fl = [t for t in res.trades + res.open_trades if d0 <= t.fill_time < d1]
+    L.append(f"  dolum (işlem): {len(fl)}   iptal: {sum(1 for e in res.events if e.kind == 'CANCELLED' and d0 <= e.time < d1)}")
+    L.append("")
+    # 2) gün gün trend
+    L.append("── 2. Gün gün trend durumu (swing trendi; [swing_low–swing_high], * = uç onaysız) ──")
+    for t, snap in res.trend_log:
+        if not (d0 <= t < d1):
+            continue
+        parts = []
+        for tf in ("D1", "H4", "M15"):
+            if tf in snap:
+                tr, lo, hi, (cl, ch) = snap[tf]
+                parts.append(f"{tf} {tr:<9}" + (f"[{lo}{'' if cl else '*'}–{hi}{'' if ch else '*'}]" if lo is not None and hi is not None else "[–]"))
+        L.append(f"  {t:%m-%d %H:%M}Z  " + "  ".join(parts) + f"  | icra iç trend {snap.get('exec_internal')}")
+    L.append("")
+    # 3) POI'ler
+    L.append("── 3. Dönemde yaşayan POI kurulumları (POI geçersizleşmediyse / dönem içinde geçersizleştiyse) ──")
+    eng = res.runner.model._engines if res.runner is not None else {}
+    n = 0
+    for s in sorted(res.setups, key=lambda s: s.poi.created_time):
+        z = s.poi
+        ze = eng.get(s.id)
+        inv_t = None
+        if z.invalidated_index is not None and ze is not None and z.invalidated_index < len(ze.candles):
+            inv_t = ze.candles[z.invalidated_index].open_time
+        if z.created_time >= d1 or (inv_t is not None and inv_t < d0):
+            continue
+        recs = [r for r in s.trace if d0 <= r[0] < d1]
+        mit = sum(1 for r in recs if r[1] == "MITIGATED")
+        last = recs[-1] if recs else None
+        n += 1
+        if n > 300:
+            L.append("  ... (kısaltıldı)")
+            break
+        L.append(f"  {z.id:<28}{z.tf.value:<4}{s.direction.value:<5}[{z.bottom}–{z.top}] doğdu {z.created_time:%m-%d %H:%M}Z"
+                 f"{' geçersiz ' + inv_t.strftime('%m-%d %H:%M') + 'Z' if inv_t else ''}  geçerli={z.valid}  mitigasyon(dönem) {mit}  "
+                 f"sinyal {s.n_signals}  son durum {s.state.value}"
+                 + (f"  son aşama: {last[1]} [{last[2]}] {last[0]:%m-%d %H:%M}Z" if last else "  (dönemde hiç mitigasyon olmadı)"))
+    L.append("")
+    # 4) izler
+    L.append("── 4. Kurulum izleri (dönem içi, aşama aşama) ──")
+    lines = 0
+    for s in sorted(res.setups, key=lambda s: s.poi.created_time):
+        recs = [r for r in s.trace if d0 <= r[0] < d1]
+        if not recs:
+            continue
+        L.append(f"  {s.id} ({s.poi.tf.value} {s.direction.value} [{s.poi.bottom}–{s.poi.top}])")
+        for t, stage, cls, d in recs:
+            L.append(f"      {t.astimezone(tz):%m-%d %H:%M} [{cls}] {stage}: {d[:230]}")
+            lines += 1
+        if lines > max_lines:
+            L.append("  ... (kısaltıldı)")
+            break
+    return "\n".join(L)

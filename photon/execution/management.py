@@ -37,6 +37,7 @@ class ManagementParams:
     ct_pct: Decimal                # 80
     range_pct: Decimal             # 100 (risk kaldırma sonrası kalanın yüzdesi)
     swing_hold: str                # H4_CHOCH (D-26)
+    second_target: str = "SWING_HI"   # PT'de son %20'nin hedefi: SWING_HI = "4H" rolünün zayıf swing'i (mevcut); NEXT_MID_ZONE = ilk hedefin ötesindeki en yakın orta-TF S&D zonu (V8, Q-V8-5)
 
     def __post_init__(self) -> None:
         if self.removal_method != "PARTIAL":
@@ -45,6 +46,8 @@ class ManagementParams:
             raise ValueError("pro-trend dağılımı toplam hacmin %100'ü olmalı (20+60+20)")
         if self.partial_pct + self.ct_pct != 100:
             raise ValueError("karşı-trend dağılımı toplam hacmin %100'ü olmalı (20+80)")
+        if self.second_target not in ("SWING_HI", "NEXT_MID_ZONE"):
+            raise ValueError(f"bilinmeyen management_second_target {self.second_target!r}")
         if self.swing_hold != "H4_CHOCH":
             raise NotImplementedError(f"swing_hold_confirmation={self.swing_hold} kodlanmadı (yalnız H4_CHOCH, D-26)")
 
@@ -55,7 +58,8 @@ class ManagementParams:
         ta = cfg.get("target_allocation")
         return cls(cfg.get("risk_removal_method"), d(cfg.get("partial_pct")), d(cfg.get("partial_at_r")),
                    d(ta["pro_trend"]["m15_weak_swing_pct"]), d(ta["pro_trend"]["h4_weak_swing_pct"]),
-                   d(ta["counter_trend"]["allocation_pct"]), d(ta["range"]["allocation_pct"]), cfg.get("swing_hold_confirmation"))
+                   d(ta["counter_trend"]["allocation_pct"]), d(ta["range"]["allocation_pct"]), cfg.get("swing_hold_confirmation"),
+                   cfg.get("management_second_target") or "SWING_HI")
 
 
 @dataclass(frozen=True)
@@ -110,6 +114,19 @@ def _swing_target(state: Optional[MarketState], side: Side, entry: Decimal) -> O
     return pt.price if ((pt.price > entry) if side is Side.LONG else (pt.price < entry)) else None
 
 
+def _next_zone_target(zones: Sequence[Zone], side: Side, beyond: Decimal) -> Optional[Decimal]:
+    """V8 (Q-V8-5): ilk hedefin (`beyond`) ötesinde kalan, karşı yönlü (long için arz, short için talep) geçerli+kullanılabilir en yakın
+    orta-TF S&D zonunun yakın kenarı. Yoksa None (son %20 ilk hedefe eklenir)."""
+    long = side is Side.LONG
+    edges = []
+    for z in zones:
+        if z.valid and z.usable and z.kind is (ZoneKind.SUPPLY if long else ZoneKind.DEMAND):
+            edge = z.bottom if long else z.top
+            if (edge > beyond) if long else (edge < beyond):
+                edges.append(edge)
+    return (min(edges) if long else max(edges)) if edges else None
+
+
 def build_plan(side: Side, trend_class: Optional[TrendClass], entry: Decimal, stop: Decimal,
                states: Mapping[Timeframe, MarketState], m15_zones: Sequence[Zone], p: ManagementParams,
                range_extremes: Optional[tuple[Decimal, Decimal]] = None) -> Union[TargetPlan, Rejected]:
@@ -135,7 +152,10 @@ def build_plan(side: Side, trend_class: Optional[TrendClass], entry: Decimal, st
         m15 = _swing_target(states.get(Timeframe.M15), side, entry)
         if m15 is None:
             return Rejected("NO_EXIT_PLAN", "MG-R005", "M15 swing hedefi girişin ötesinde yok")
-        h4 = _swing_target(states.get(Timeframe.H4), side, entry)
+        if p.second_target == "NEXT_MID_ZONE":
+            h4 = _next_zone_target(m15_zones, side, m15)
+        else:
+            h4 = _swing_target(states.get(Timeframe.H4), side, entry)
         if h4 is None:
             legs.append(Leg(M15_LEG, p.pt_m15_pct + p.pt_h4_pct, m15, None, "M15 zayıf swing"))
             notes.append("4H swing hedefi yok: %20 M15 hedefine eklendi")

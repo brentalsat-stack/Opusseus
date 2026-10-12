@@ -20,6 +20,7 @@ class Profile:
     name: str
     exec_tf: Timeframe
     role_map: tuple[tuple[Timeframe, Optional[Timeframe]], ...]      # (rol, gerçek TF | None)
+    hold_role: Timeframe = H4           # D-26 tutma onayı CHoCH'unun rolü (M1: "4H" rolü=H4; V8: "M15" rolü=H4 — Q-V8-5: hedefler/onay H4'te kalır)
 
     def real(self, role: Timeframe) -> Optional[Timeframe]:
         return dict(self.role_map)[role]
@@ -33,6 +34,10 @@ class Profile:
         return self.real(M15)
 
     @property
+    def hold_tf(self) -> Timeframe:
+        return self.real(self.hold_role)
+
+    @property
     def poi_tfs(self) -> tuple[Timeframe, ...]:
         return tuple(r for _, r in self.role_map if r is not None)
 
@@ -44,7 +49,7 @@ class Profile:
 
 PROFILES = {
     "M1": Profile("M1", M1, ((D1, D1), (H4, H4), (M15, M15))),
-    "M15": Profile("M15", M15, ((D1, None), (H4, D1), (M15, H4))),
+    "M15": Profile("M15", M15, ((D1, None), (H4, D1), (M15, H4)), M15),
 }
 
 
