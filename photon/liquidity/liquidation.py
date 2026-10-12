@@ -48,7 +48,7 @@ def liquidation(m1: Sequence[Candle], zone: Zone, upto: int, tol: Decimal, pipet
         return LiquidationResult(False, "NOT_MITIGATED")
     # pencere başı: bu ziyaretten önceki en son 'zonu kesen/aşan' mumdan sonrası; yoksa zonun doğduğu an
     prev_visit = next((i for i in range(touch - 1, -1, -1) if not outside(m1[i])), None)
-    born = next((i for i, c in enumerate(m1) if c.open_time >= zone.created_time), 0)
+    born = _first_at_or_after(m1, zone.created_time)
     natural = max(born, (prev_visit + 1) if prev_visit is not None else 0)
     start = max(natural, touch - MAX_WINDOW)
     capped = start > natural
@@ -63,6 +63,18 @@ def liquidation(m1: Sequence[Candle], zone: Zone, upto: int, tol: Decimal, pipet
         if j is not None:
             return LiquidationResult(True, "", lv, j, start, touch, capped)
     return LiquidationResult(False, "NO_SWEEP", window_start=start, touch_index=touch, window_capped=capped)
+
+
+def _first_at_or_after(m1, t) -> int:
+    """İlk open_time ≥ t mumun indeksi (ikili arama; bulunamazsa 0 — eski `next(..., 0)` davranışı)."""
+    lo, hi = 0, len(m1)
+    while lo < hi:
+        mid = (lo + hi) // 2
+        if m1[mid].open_time < t:
+            lo = mid + 1
+        else:
+            hi = mid
+    return lo if lo < len(m1) else 0
 
 
 def v_shape_exit(touch_index: int, choch_index: int, max_candles: int) -> bool:

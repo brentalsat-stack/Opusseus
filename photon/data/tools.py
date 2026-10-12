@@ -74,13 +74,19 @@ def export_csv(candles: Iterable[QuoteCandle], path: str | Path) -> int:
     return n
 
 
-def import_histdata(cfg, pair: str, path: str | None = None) -> "histdata.ImportReport":
-    """HistData M1 (bid) dosyasını önbelleğe alır; ask = bid + costs.spread_pips."""
+def import_histdata(cfg, pair: str, path: str | None = None, years: tuple[int, int] | None = None) -> "histdata.MultiReport":
+    """HistData M1 (bid) dosya(lar)ını önbelleğe alır; ask = bid + costs.spread_pips. `path`: dosya, dizin (DAT_ASCII_<PAIR>_M1_<YYYY>.csv'ler)
+    veya glob; verilmezse config data.backtest.histdata.path (o da dosya/dizin/glob olabilir). Yıllar tek önbellekte birleştirilir."""
     cfg.require("hist_histdata")
+    paths = histdata.resolve_paths(path or cfg.get("data.backtest.histdata.path"), pair, years)
+    if not paths:
+        raise FileNotFoundError(f"HistData dosyası bulunamadı: {path or cfg.get('data.backtest.histdata.path')}")
+    missing = [p for p in paths if not p.is_file()]
+    if missing:
+        raise FileNotFoundError(f"HistData dosyası yok: {missing[0]}")
     store = open_store(cfg)
     try:
-        return histdata.import_file(path or cfg.get("data.backtest.histdata.path"), pair, cfg.pip_size(pair),
-                                    Decimal(str(cfg.get("costs.spread_pips"))),
+        return histdata.import_many(paths, pair, cfg.pip_size(pair), Decimal(str(cfg.get("costs.spread_pips"))),
                                     cfg.get("data.backtest.histdata.utc_offset_hours"), store)
     finally:
         store.close()

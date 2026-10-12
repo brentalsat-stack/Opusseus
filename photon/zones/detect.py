@@ -71,6 +71,17 @@ def range_zone(candles: Sequence[Candle], t: int, pipette: Decimal, min_chain: i
     if inside_rule not in ("WICK", "CLOSE"):
         raise ValueError(f"bilinmeyen range_inside_rule {inside_rule!r}")
     c = candles[t]
+    # ucuz ön koşul (sonuç değişmez): zincirin son (min_chain−1) mumu her mother için zincire dahildir; kopuş kapanışı bunların
+    # aralığının ≥1 pipette dışında olmak zorundadır. Değilse hiçbir mother geçerli olamaz.
+    k = min(min_chain - 1, t)
+    if k >= 1:
+        tail = candles[t - k:t]
+        if inside_rule == "CLOSE":
+            hi_, lo_ = max(x.close for x in tail), min(x.close for x in tail)
+        else:
+            hi_, lo_ = max(x.high for x in tail), min(x.low for x in tail)
+        if c.close - hi_ < pipette and lo_ - c.close < pipette:
+            return None
     mx = None            # m+1..t-1 arası en yüksek high (CLOSE kuralında en yüksek KAPANIŞ)
     mn = None
     best: Optional[int] = None

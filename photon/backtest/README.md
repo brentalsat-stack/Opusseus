@@ -94,3 +94,29 @@ Sınırlar / bilinen farklar: V-shape (N=10) sayacı V8'de **M15 mum sayısıdı
 - **Q-Z11 (kutu penceresi):** CHoCH bacağı `[origin_index, break_index]`; Q-E8 beklemesinde mitigasyon başlangıcı kutuyu belirlemez. V0 (M1) ve V8 (M15) aynı kural. Test: `test_q_z11_box_comes_from_the_choch_leg_only_*`.
 - **PD-R003 rol bağı:** kod zaten rol anahtarıyla çalışıyordu (`range_extreme_filter.range_tf: M15` = ORTA rol; V8'de orta rol H4), yani V8'de filtre H4 swing aralığını kullanıyordu; yalnızca teşhis etiketi yanlış okunuyordu. Etiket artık `range_tf=M15(rol→H4 swing aralığı)`; testler (`test_v8_range_filter_state_is_the_h4_swing_range_and_diag_says_so`, V0 karşılığı) bağı doğrular. V0'da M15 swing aralığı kullanılır (karar değişmedi).
 - **Zon→BOS izleme:** `python -m photon trace-bos --tf H4 --start 2021-09-01 --end 2021-09-03 --type BOS --dir BULL [--out iz.txt]` (V0 için `--tf M15`). Her olay için: kırılış/origin mumu, pencere mumları (renk), pencere içindeki HER kopuş mumunda pivot ve range algılamasının sonucu **ve nedeni** (örn. "hemen önceki mum karşı yönlü değil", "kapanış koşuyu yutmuyor", "inside-bar zinciri yok"), pencerenin çevresindeki tüm zonlar (aday / elendi: yön, pencereden önce/sonra) ve sonuç (bağlı zon yok → POI oluşmaz). Algılamayı değiştirmez; `run_zones` ile aynı motorlar.
+
+## Çok yıllı test altyapısı (kural değişikliği YOK)
+**1) Veri:** HistData yıllık dosyalarını `data_samples/histdata/DAT_ASCII_EURUSD_M1_YYYY.csv` olarak koyun.
+```
+python -m photon import-histdata --path data_samples/histdata [--years 2016-2023]
+```
+`--path` dosya, dizin (yalnız `DAT_ASCII_<PAIR>_M1_*.csv`) veya glob olabilir; yıllar tek önbellekte (`HISTDATA`) birleşir. Her dosya için satır/tekrar/sırasız/geçersiz sayıları; **yıl sınırlarında süreklilik**: önceki dosyanın son mumu ile sonrakinin ilk mumu arasındaki boşluk (hafta sonu + yılbaşı normal; >4 gün `UZUN_BOŞLUK`, çakışma `ÇAKIŞMA`); dosya adlarında atlanan yıl `EKSİK YIL`. **Tekrar kontrolü:** önbellekte zaten bulunan zaman damgaları sayılır (`önbellekte zaten vardı`) ve değeri farklı olanlar ayrıca (`farklı`) raporlanır — sessiz üzerine yazma yok (yeniden içe aktarma aynı değerlerle güvenli ve idempotent). Saat dönüşümü eskisi gibi sabit EST→UTC (yıl dosyaları EST gece yarısında kesilir; çakışma beklenmez).
+
+**2) Yıl kırılımı:**
+```
+python -m photon backtest-compare --periods 2016..2023 --variants variants.yaml [--only V0,V8a,V9a,V9b] [--jobs 2] [--out backtest_2016_2023]
+python -m photon backtest-compare --start 2016-01-01 --end 2023-12-31 --periods year ...   # eşdeğer
+```
+**Tek sürekli koşu**: motor `--start`ta açılır, veri başından itibaren warm-up kesintisiz sürer (her yıl başında sıfırlanmaz), bakiye yıllar arası bileşik taşınır. Yıl satırları bu koşunun dilimleridir (`report.slice_result`): işlem **kapanış yılına** yazılır; yıl başlangıç bakiyesi = önceki yılın son kapanış bakiyesi; getiri% yıl başı bakiyeye göre; max DD yıl içi tepe-dip. Çıktı: her varyant için yıl × metrik tablosu (+TOPLAM) ve varyantlar arası yıl × {toplam R net, getiri%, işlem sayısı, max DD%} matrisleri (`compare.txt`). Uyarı: veri başındaki ilk yıl (cold start, D1/H4 yapısı olgunlaşmadan) diğer yıllarla aynı güvenilirlikte değildir.
+
+**3) Süre:** bkz. aşağıdaki tahmin tablosu (sentetik ölçüm; gerçek veri olay yoğunluğu nedeniyle ~1.3–1.6× daha yavaş olabilir).
+
+### Performans çalışması (sonuç DEĞİŞMEDİ — eski/yeni sürümde aynı işlem+olay özeti)
+Çok yıllı koşuyu mümkün kılmak için ikinci dereceden büyüyen yerler giderildi: zon→olay bağlamada tüm zon listesi yerine ikili arama (`ZoneEngine._link`), mum zonun güvenli tarafındayken `_advance` atlanır, `Timeframe.delta` sözlük araması, `refined_zones`/`nested_parents` ucuz testler önce + kurulum başına artımlı ebeveyn/CHoCH önbelleği (`_parents`, `_choch_after`), `range_zone` için ucuz ön koşul, liquidation'da `born` indeksi ikili arama, sinyal hakkını kullanmış (Q-E5 REJECT) kurulumların izleme döngüsünden çıkarılması.
+
+### Süre ve bellek tahmini (8 yıl ≈ 2.96 M M1 mumu; sentetik ölçüm, bu sandbox)
+| Profil | ms/mum (100 gün → 400 gün) | 8 yıl / varyant (tahmin) |
+|---|---|---|
+| M1 icra (V0, V1–V6, V9b) | 0.11 → 0.18 (≈ +%25 / her 2× uzunlukta) | ≈ 12 dk (gerçek veri olay yoğunluğuyla ≈ 15–25 dk) |
+| M15 icra (V8a/b/c, V9a) | 0.023 (400 gün) | ≈ 1–2 dk |
+2 çekirdekle 12 varyant (7 M1-profil + 5 M15-profil): ≈ (7×~20 + 5×~2) / 2 ≈ **75–90 dk** (yalnız `--only V0,V8a,V9a,V9b`: ≈ 25–30 dk). Her süreç veriyi önbellekten kendisi yükler (+≈0.5–1 dk). **Bellek:** süreç başına ≈ 1.6 KB/mum → 8 yılda **≈ 4–5 GB**; `--jobs 2` ≈ 10 GB RAM ister — RAM yetersizse `--jobs 1` kullanın (süre ≈ 2×).

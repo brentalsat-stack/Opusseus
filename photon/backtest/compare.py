@@ -23,7 +23,8 @@ from ..config import load_config
 from ..config.loader import Config, _decimalize
 from ..liquidity import v_shape_exit
 from .engine import BacktestEngine
-from .report import CLASSES, compute_metrics, monthly_funnel, stop_quick_ratio, write_outputs, funnel
+from .report import (CLASSES, compute_metrics, funnel, metrics_row, monthly_funnel, slice_result, stop_quick_ratio, write_outputs,
+                     year_windows)
 
 # varsayılan config'te bulunmayan ama kodda varsayılanı olan (davranışı değiştirmeyen) anahtarlar: override ile eklenebilir
 NEW_KEYS_ALLOWED = {"entry_zone_choice", "execution_profile", "session_gate", "min_refine_pips", "fib_entry_pct", "news_blackout", "management_second_target"}
@@ -99,8 +100,11 @@ def write_detail_csv(res, out: Path, d0: datetime, d1: datetime) -> Path:
     p = out / f"{res.pair}_trades_detail.csv"
     rows = [t for t in res.trades + res.open_trades if d0 <= t.fill_time < d1]
     prof = res.runner.profile if res.runner is not None else None
-    shift = {"M15_WEAK_SWING": f"M15_WEAK_SWING[={prof.mid.value} swing]", "H4_WEAK_SWING": f"H4_WEAK_SWING[={prof.hi.value} swing]"} \
-        if prof is not None and prof.name != "M1" else {}                    # V8: bacak adları ROL adıdır; gerçek TF'yi göster
+    shift = {}
+    if prof is not None and prof.name != "M1":              # V8: bacak adları ROL adıdır; gerçek hedefi göster (Q-V8-5: ilk hedef H4 swing, son %20 = sonraki H4 ZONU)
+        sec = res.runner.model.mgmt.second_target
+        shift = {"M15_WEAK_SWING": f"M15_WEAK_SWING[={prof.mid.value} swing]",
+                 "H4_WEAK_SWING": (f"H4_WEAK_SWING[=sonraki {prof.mid.value} zonu]" if sec == "NEXT_MID_ZONE" else f"H4_WEAK_SWING[={prof.hi.value} swing]")}
     lab = lambda n: shift.get(n, n)
     with p.open("w", newline="", encoding="utf-8") as fh:
         w = csv.writer(fh)
@@ -150,13 +154,15 @@ def run_variant(task: dict) -> dict:
             "funnel": {k: v.get("TOPLAM", 0) for k, v in funnel(res)}, "monthly": monthly_funnel(res),
             "signals": sum(1 for e in res.events if e.kind == "SIGNAL"), "cancelled": sum(1 for e in res.events if e.kind == "CANCELLED"),
             "vshape_rows": _vshape_rows(res), "v_n_config": cfg.get("v_shape_metric.max_candles"),
+            "yearly": ({y: metrics_row(slice_result(res, a, b)) for y, a, b in year_windows(start, end)} if task.get("periods") == "year" else None),
+            "total_row": metrics_row(res),
             "seconds": round(time.time() - t0, 1), "out": str(out)}
 
 
 def run_compare(config_path: str, spec: CompareSpec, source: str, pair: str, start: datetime, end: datetime, balance: Decimal,
-                out: Path, jobs: int = 1, progress=print) -> list[dict]:
+                out: Path, jobs: int = 1, progress=print, periods: Optional[str] = None) -> list[dict]:
     tasks = [{"config": config_path, "name": v.name, "desc": v.desc, "overrides": v.overrides, "source": source, "pair": pair,
-              "start": start, "end": end, "balance": balance, "out": str(out), "detail": spec.detail} for v in spec.variants]
+              "start": start, "end": end, "balance": balance, "out": str(out), "detail": spec.detail, "periods": periods} for v in spec.variants]
     results: dict[str, dict] = {}
     if jobs <= 1 or len(tasks) == 1:
         for t in tasks:
@@ -189,6 +195,35 @@ def format_table(results: list[dict]) -> str:
         L.append(f"{r['name']:<8}{m.n:>6}{_f(m.strike_rate, 1):>9}{_f(m.avg_r_net):>10}{_f(m.total_r_net):>10}{_f(m.total_r):>11}"
                  f"{_f(m.return_pct, 1):>9}{_f(m.max_dd_pct, 1):>8}{m.max_consec_losses:>18}{_f(r['commission_pct_of_risk'], 1):>15}"
                  f"{(f'{q5}/{nl} %{q5 / nl * 100:.0f}' if nl else '-'):>12}{r['entry_and_stop_same_candle']:>20}")
+    return "\n".join(L)
+
+
+def format_yearly(results: list[dict]) -> str:
+    """Varyant başına yıl × metrik tablosu (+ TOPLAM) ve varyantlar arası yıl × (toplam R net, getiri%) matrisleri."""
+    L = []
+    hdr = (f"{'yıl':<8}{'işlem':>6}{'strike%':>9}{'ort R net':>10}{'top R net':>10}{'top R brüt':>11}{'getiri%':>9}{'maxDD%':>8}"
+           f"{'maks kayıp serisi':>18}{'komisyon/risk%':>15}{'≤5dk stop':>12}")
+    def q5s(r):
+        return f"{r['q5']}/{r['losers']} %{r['q5'] / r['losers'] * 100:.0f}" if r["losers"] else "-"
+
+    def fmt(lab, r):
+        return (f"{lab:<8}{r['n']:>6}{_f(r['strike'], 1):>9}{_f(r['avg_r_net']):>10}{_f(r['total_r_net']):>10}{_f(r['total_r']):>11}"
+                f"{_f(r['return_pct'], 1):>9}{_f(r['max_dd_pct'], 1):>8}{r['max_consec']:>18}{_f(r['comm_pct_risk'], 1):>15}{q5s(r):>12}")
+    for r in results:
+        if not r.get("yearly"):
+            continue
+        L += [f"── {r['name']}: {r['desc']} ──", hdr]
+        L += [fmt(str(y), row) for y, row in r["yearly"].items()]
+        L += [fmt("TOPLAM", r["total_row"]), ""]
+    ys = sorted({y for r in results if r.get("yearly") for y in r["yearly"]})
+    if ys:
+        for title, key, nd in (("Toplam R (net) — yıl × varyant", "total_r_net", 2), ("Getiri % (bileşik bakiye; yıl başı bakiyesine göre) — yıl × varyant", "return_pct", 1),
+                               ("İşlem sayısı — yıl × varyant", "n", 0), ("Max drawdown % — yıl × varyant", "max_dd_pct", 1)):
+            L += [f"── {title} ──", f"{'yıl':<8}" + "".join(f"{r['name']:>9}" for r in results)]
+            for y in ys:
+                L.append(f"{y:<8}" + "".join(f"{(_f(Decimal(r['yearly'][y][key]), nd) if r.get('yearly') and y in r['yearly'] else '-'):>9}" for r in results))
+            L.append(f"{'TOPLAM':<8}" + "".join(f"{_f(Decimal(r['total_row'][key]), nd):>9}" for r in results))
+            L.append("")
     return "\n".join(L)
 
 
@@ -235,6 +270,9 @@ def format_compare(results: list[dict], spec: CompareSpec, start: datetime, end:
         L.append(f"  {r['name']}: {r['desc']}  [{ov}]  ({r['seconds']} sn)")
     for n, why in (skipped or {}).items():
         L.append(f"  {n}: ATLANDI — {why}")
+    if any(r.get("yearly") for r in results):
+        L += ["", "── Yıllık kırılım (tek sürekli koşu: warm-up ve bakiye yıllar arası kesintisiz; işlem KAPANIŞ yılına yazılır; ilk yıl yapı soğuk başlangıçtan etkilenir) ──",
+              format_yearly(results)]
     L += ["", "── Özet ──", format_table(results), "",
           "(≤5dk stop: kaybeden işlemlerden dolumdan ≤5 dk içinde kapananlar / kaybeden; komisyon/risk: Σkomisyon / Σhedef risk)", "",
           "── Trend sınıfı kırılımı ──", format_classes(results), ""]

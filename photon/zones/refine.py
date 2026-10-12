@@ -14,9 +14,11 @@ def contained_in(inner: Zone, outer: Zone, pipette: Decimal) -> bool:
 
 def nested_parents(z: Zone, parents: Iterable[Zone], pipette: Decimal) -> list[Zone]:
     """POI puanı #3: geçerli, kullanılabilir daha üst TF zonları (4H/D) içinde kalıyorsa."""
-    return [p for p in parents if p.tf.delta > z.tf.delta and p.valid and p.usable and contained_in(z, p, pipette)]
+    zd, lo, hi = z.tf.delta, z.bottom + pipette, z.top - pipette        # contained_in(z, p): p.bottom ≤ z.bottom+pip ve p.top ≥ z.top−pip (en ucuz testler önce)
+    return [p for p in parents if p.kind is z.kind and p.bottom <= lo and p.top >= hi and p.tf.delta > zd and p.valid and p.usable]
 
 
 def refined_zones(poi: Zone, lower: Iterable[Zone], pipette: Decimal) -> list[Zone]:
     """D-02: 4H POI'nin içindeki geçerli rafine M15 zonları (bunlardan birine dokunulması beklenir)."""
-    return [z for z in lower if z.tf.delta < poi.tf.delta and z.valid and z.usable and contained_in(z, poi, pipette)]
+    pd, lo, hi, kind = poi.tf.delta, poi.bottom - pipette, poi.top + pipette, poi.kind
+    return [z for z in lower if z.kind is kind and z.bottom >= lo and z.top <= hi and z.tf.delta < pd and z.valid and z.usable]

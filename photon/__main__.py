@@ -30,7 +30,8 @@ def main(argv: list[str] | None = None) -> int:
     ih = sub.add_parser("import-histdata", help="HistData M1 bid CSV'sini önbelleğe al (UTC'ye çevirir, ask=bid+spread)")
     ih.add_argument("--config", default=str(DEFAULT_PATH))
     ih.add_argument("--pair")
-    ih.add_argument("--path", help="verilmezse config data.backtest.histdata.path")
+    ih.add_argument("--path", help="dosya, dizin (DAT_ASCII_<PAIR>_M1_<YYYY>.csv) veya glob; verilmezse config data.backtest.histdata.path")
+    ih.add_argument("--years", help="yalnız bu yıl aralığı, örn. 2016-2023")
     st = sub.add_parser("structure", help="yapı olaylarını bul: CSV + işaretli grafik (doğrulama)")
     st.add_argument("--config", default=str(DEFAULT_PATH))
     st.add_argument("--source", choices=["HISTDATA", "OANDA_PRACTICE", "DUKASCOPY"])
@@ -72,8 +73,9 @@ def main(argv: list[str] | None = None) -> int:
     bc.add_argument("--config", default=str(DEFAULT_PATH))
     bc.add_argument("--source", choices=["HISTDATA", "OANDA_PRACTICE", "DUKASCOPY"])
     bc.add_argument("--pair")
-    bc.add_argument("--start", type=date.fromisoformat, required=True)
-    bc.add_argument("--end", type=date.fromisoformat, required=True, help="dahil")
+    bc.add_argument("--start", type=date.fromisoformat, help="--periods YYYY..YYYY verilmediyse zorunlu")
+    bc.add_argument("--end", type=date.fromisoformat, help="dahil; --periods YYYY..YYYY verilmediyse zorunlu")
+    bc.add_argument("--periods", help="'year' (yıl bazında ayrı satırlar + toplam) veya 'YYYY..YYYY' (aralığı ve yıl kırılımını birlikte verir, örn. 2016..2023)")
     bc.add_argument("--variants", required=True, help="variants.yaml")
     bc.add_argument("--balance", help="başlangıç bakiyesi (verilmezse config backtest.initial_balance)")
     bc.add_argument("--out", default="backtest_compare")
@@ -86,7 +88,15 @@ def main(argv: list[str] | None = None) -> int:
         from .data import tools
         from .logging_setup import setup_from_config
         setup_from_config(cfg)
-        rep = tools.import_histdata(cfg, args.pair or cfg.pairs[0], args.path)
+        yrs = None
+        if args.years:
+            a, _, b = args.years.partition("-")
+            yrs = (int(a), int(b or a))
+        try:
+            rep = tools.import_histdata(cfg, args.pair or cfg.pairs[0], args.path, yrs)
+        except FileNotFoundError as e:
+            print(str(e), file=sys.stderr)
+            return 2
         print(rep.summary())
         for n, why in rep.invalid[:10]:
             print(f"  geçersiz satır {n}: {why}")
@@ -301,6 +311,21 @@ def _compare_cmd(cfg, args) -> int:
 
     cfg.require("backtest", "strategy", "management", "data_boundaries", "structure_warmup")
     spec = load_variants(args.variants)
+    periods = None
+    if args.periods:
+        import re
+        m = re.fullmatch(r"(\d{4})\.\.(\d{4})", args.periods)
+        if args.periods == "year":
+            periods = "year"
+        elif m:
+            periods = "year"
+            args.start, args.end = date(int(m.group(1)), 1, 1), date(int(m.group(2)), 12, 31)
+        else:
+            print("--periods: 'year' veya 'YYYY..YYYY' olmalı", file=sys.stderr)
+            return 2
+    if args.start is None or args.end is None:
+        print("--start/--end gerekli (ya da --periods YYYY..YYYY)", file=sys.stderr)
+        return 2
     if args.only:
         want = [x.strip() for x in args.only.split(",") if x.strip()]
         unknown = [x for x in want if x not in {v.name for v in spec.variants}]
@@ -332,7 +357,7 @@ def _compare_cmd(cfg, args) -> int:
     jobs = args.jobs or min(os.cpu_count() or 1, len(spec.variants))
     print(f"{len(spec.variants)} varyant, {jobs} süreç ...")
     out = Path(args.out)
-    results = run_compare(args.config, spec, source, pair, start, end, bal, out, jobs)
+    results = run_compare(args.config, spec, source, pair, start, end, bal, out, jobs, periods=periods)
     text = format_compare(results, spec, start, end, bal, source, pair, skipped)
     print("\n" + text)
     paths = write_compare(results, spec, out, text)

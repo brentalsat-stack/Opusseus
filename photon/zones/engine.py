@@ -5,6 +5,7 @@ birlikte çalışır (önce yapı motoru `update`, sonra `ZoneEngine.update(cand
 Bearish (supply) mantığı bullish (demand) mantığının aynalanmış halidir (s = +1/−1)."""
 from __future__ import annotations
 
+import bisect
 import logging
 from dataclasses import dataclass
 from datetime import datetime
@@ -60,6 +61,7 @@ class ZoneEngine:
         self.candles: list[Candle] = []
         self.zones: list[Zone] = []
         self._act: list[Zone] = []          # izlenen (kullanılabilir) zonlar
+        self._zcreated: list[int] = []      # self.zones ile paralel created_index (artan) — olay bağlamada ikili arama
         self._pip = params.pip_size / 10
         self._tracks: dict[str, _Track] = {}
         self.limits = {"retired": 0, "retired_valid": 0, "range_lookback_exhausted": 0}   # Q-L3: sınırlar nedeniyle elenen durumlar
@@ -114,9 +116,14 @@ class ZoneEngine:
                 self.limits["retired_valid"] += int(z.valid)
                 continue                                    # emekli: izlenmez (z.zones içinde kalır)
             if z.created_index < t:
-                f = self._advance(z, t)
-                if f is not None:
-                    new.append(f)
+                # hızlı yol (sonuç değişmez): izlenmeyen zon, mum zonun GÜVENLİ tarafında (talepte low > top, arzda high < bottom) →
+                # dokunma yok ve karşı uçtan kapanışla geçersizleşme imkânsız; _advance bir şey yapmazdı
+                if (c.low > z.top if z.kind is ZoneKind.DEMAND else c.high < z.bottom) and z.id not in self._tracks:
+                    pass
+                else:
+                    f = self._advance(z, t)
+                    if f is not None:
+                        new.append(f)
             if z.usable:
                 keep.append(z)
         self._act = keep + [f for f in new]
@@ -133,6 +140,7 @@ class ZoneEngine:
                  first, t, c.open_time, ctx, is_flip=flip_from is not None, flipped_from=flip_from,
                  warmup=self.structure.live_from is not None and c.open_time < self.structure.live_from)
         self.zones.append(z)
+        self._zcreated.append(t)
         self._act.append(z)
         return z
 
@@ -165,7 +173,12 @@ class ZoneEngine:
             if ev.type not in (EventType.BOS, EventType.CHOCH) or ev.origin_index is None:
                 continue
             kind = ZoneKind.DEMAND if ev.dir is Trend.BULL else ZoneKind.SUPPLY
-            cands = [z for z in self.zones if z.kind is kind and ev.origin_index <= z.created_index <= ev.break_index]
+            if len(self._zcreated) == len(self.zones):       # created_index artan → pencereyi ikili aramayla bul (tüm zonları taramaz)
+                lo = bisect.bisect_left(self._zcreated, ev.origin_index)
+                hi = bisect.bisect_right(self._zcreated, ev.break_index)
+                cands = [z for z in self.zones[lo:hi] if z.kind is kind]
+            else:
+                cands = [z for z in self.zones if z.kind is kind and ev.origin_index <= z.created_index <= ev.break_index]
             plain = [z for z in cands if not z.is_flip]
             if plain:
                 first = min(plain, key=lambda z: (z.created_index, 0 if z.origin is Origin.PIVOT else 1))

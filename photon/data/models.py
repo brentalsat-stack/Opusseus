@@ -23,7 +23,10 @@ class Timeframe(str, Enum):
 
     @property
     def delta(self) -> timedelta:
-        return _DELTAS[self.value]
+        return _MEMBER_DELTA[self]          # enum .value erişimi yavaş (çok sıcak yol); üye → delta sözlüğü
+
+
+_MEMBER_DELTA = {tf: _DELTAS[tf.value] for tf in Timeframe}
 
 
 @dataclass(frozen=True)

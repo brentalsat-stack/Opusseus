@@ -271,6 +271,8 @@ class EntryModel:
         self.mgmt = mgmt
         self.clock, self.tracker, self.news = clock, tracker, news
         self.setups: list[Setup] = []
+        self._pcache: dict[str, dict] = {}       # kurulum → {TF: (taranan zon sayısı, geometrik aday ebeveynler)}
+        self._ccache: dict[str, list] = {}       # kurulum → [mitigasyon zamanı, taranan olay sayısı, bulundu mu]
         self.role_names: dict[Timeframe, str] = {}   # rol → gerçek TF adı (profil; yalnız teşhis metinleri için)
         self.archive: list[Setup] = []          # POI geçersizleşip izlemeden çıkan kurulumlar (huni raporu için saklanır)
         self.book = SignalBook(params.duplicate_policy, params.opposite_policy)
@@ -295,10 +297,14 @@ class EntryModel:
         out: list[SignalEvent] = []
         c = view.m1[view.i]
         self.new_day(view.now)
+        precheck = self.p.entry_type != "RISK"
+        reject_dup = self.p.duplicate_policy == "REJECT"
+        pp = self.p.pipette
         for s in list(self.setups):
             if s.cancelled:
                 continue
-            if not (s.poi.usable) and s.state in (State.WATCHING, State.POI_MITIGATED, State.CONFIRMATION_PENDING, State.ENTRY_READY):
+            pz0 = s.poi
+            if (pz0.invalidated_index is not None or pz0.flipped_index is not None) and s.state in (State.WATCHING, State.POI_MITIGATED, State.CONFIRMATION_PENDING, State.ENTRY_READY):
                 s.cancelled = "POI_INVALIDATED"
                 if s.state is not State.WATCHING:
                     s.to(State.WATCHING, view.now, "POI_INVALIDATED")
@@ -312,6 +318,16 @@ class EntryModel:
             if s.state is State.ORDER_PENDING:
                 out += self._pending(s, view, c)
             elif s.state is State.WATCHING:
+                if reject_dup and s.n_signals > 0:                         # Q-E5: POI sinyal hakkını kullandı → bir daha hiçbir şey olmaz; döngüden çıkar (arşive)
+                    out += self._watching(s, view, c)                      # (tek seferlik DUPLICATE_POI kaydı)
+                    if s in self.setups:
+                        self.setups.remove(s)
+                        self.archive.append(s)
+                    continue
+                if precheck:         # ucuz geometri ön kontrolü (davranış değişmez; _watching ilk satırlarıyla aynı)
+                    pz = s.poi
+                    if c.low > pz.top + pp or c.high < pz.bottom - pp:
+                        continue
                 out += self._watching(s, view, c)
             elif s.state is State.POI_MITIGATED:
                 out += self._mitigated(s, view, c)
@@ -369,13 +385,41 @@ class EntryModel:
             return refined_zones(poi, view.zones.get(Timeframe.M15, ()), self.p.pipette)
         return [poi]
 
+    def _parents(self, s: Setup, view: MarketView) -> list[Zone]:
+        """`nested_parents` ile aynı sonuç; geometrik (sabit) koşulları sağlayan adaylar kurulum başına artımlı önbelleğe alınır, yalnız
+        değişken koşullar (valid/usable) her çağrıda sınanır — zon listeleri yıllar içinde büyüdüğünde tam tarama yapılmaz."""
+        cache = self._pcache.setdefault(s.id, {})
+        z, pip = s.poi, self.p.pipette
+        zd, lo, hi = z.tf.delta, z.bottom + pip, z.top - pip
+        out: list[Zone] = []
+        for tf in (Timeframe.H4, Timeframe.D1):
+            lst = view.zones.get(tf, ())
+            n0, cands = cache.get(tf, (0, []))
+            if len(lst) > n0:
+                cands = cands + [p for p in lst[n0:] if p.kind is z.kind and p.bottom <= lo and p.top >= hi and p.tf.delta > zd]
+                cache[tf] = (len(lst), cands)
+            out += [p for p in cands if p.valid and p.usable]
+        return out
+
+    def _choch_after(self, s: Setup, view: MarketView, mitigation_time: datetime) -> bool:
+        """`m15_choch_after_mitigation` ile aynı sonuç; olay listesi yalnızca eklendiği için artımlı taranır."""
+        c = self._ccache.get(s.id)
+        if c is None or c[0] != mitigation_time or c[1] > len(view.m15_events):
+            c = [mitigation_time, 0, False]
+        if not c[2]:
+            for e in view.m15_events[c[1]:]:
+                if e.type is EventType.CHOCH and e.dir is s.direction and not e.warmup and e.time > mitigation_time:
+                    c[2] = True
+                    break
+            c[1] = len(view.m15_events)
+        self._ccache[s.id] = c
+        return c[2]
+
     def _permission(self, s: Setup, view: MarketView, mitigation_time: datetime):
         t4 = view.states[Timeframe.H4].swing_trend
         t15 = view.states[Timeframe.M15].swing_trend
-        parents = nested_parents(s.poi, [z for tf in (Timeframe.H4, Timeframe.D1) for z in view.zones.get(tf, ())],
-                                 self.p.pipette)
-        in_4h = s.poi.tf.delta >= self.p.refine_min_tf.delta or any(p.mitigated_index is not None for p in parents)
-        choch = m15_choch_after_mitigation(view.m15_events, mitigation_time, s.direction)       # Q-P1
+        in_4h = s.poi.tf.delta >= self.p.refine_min_tf.delta or any(p.mitigated_index is not None for p in self._parents(s, view))
+        choch = self._choch_after(s, view, mitigation_time)       # Q-P1
         perm = check_permission(t4, t15, s.direction, price_in_htf_poi=True, price_in_4h_poi=in_4h,
                                 m15_choch_toward_dir=choch)
         cls = None
@@ -497,8 +541,7 @@ class EntryModel:
         poi_params = self.poi_p if not risk_mode else dataclasses.replace(self.poi_p, require_liquidation=False)
         ctx = POIContext(direction=s.direction, states=view.states, permission=perm, session=self.clock.may_open(t),
                          liquidation=liq, has_inducement=s.has_inducement,
-                         nested_parents=nested_parents(s.poi, [z for tf in (Timeframe.H4, Timeframe.D1)
-                                                               for z in view.zones.get(tf, ())], self.p.pipette),
+                         nested_parents=self._parents(s, view),
                          v_shape=vshape, peers=self._engines[s.id].zones)
         res: POIResult = evaluate_poi(s.poi, ctx, poi_params)
         if not res.passed:

@@ -161,7 +161,8 @@ def build_plan(side: Side, trend_class: Optional[TrendClass], entry: Decimal, st
             notes.append("4H swing hedefi yok: %20 M15 hedefine eklendi")
         else:
             legs.append(Leg(M15_LEG, p.pt_m15_pct, m15, None, "M15 zayıf swing"))
-            legs.append(Leg(H4_LEG, p.pt_h4_pct, h4, HOLD_H4_CHOCH, "4H zayıf swing"))
+            legs.append(Leg(H4_LEG, p.pt_h4_pct, h4, HOLD_H4_CHOCH,
+                            "sonraki orta-TF S&D zonu" if p.second_target == "NEXT_MID_ZONE" else "4H zayıf swing"))
         cls = (trend_class.value if trend_class else "PRO")
     legs.sort(key=lambda l: l.price if long else -l.price)
     return TargetPlan(cls, tuple(legs), tuple(notes))

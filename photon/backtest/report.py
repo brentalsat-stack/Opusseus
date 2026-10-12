@@ -6,8 +6,9 @@ from __future__ import annotations
 import csv
 import re
 from collections import Counter, defaultdict
+import dataclasses
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from typing import Optional, Sequence
@@ -506,3 +507,38 @@ def period_diagnostics(res: BacktestResult, d0: datetime, d1: datetime, tz: Zone
             L.append("  ... (kısaltıldı)")
             break
     return "\n".join(L)
+
+
+def slice_result(res: BacktestResult, d0: datetime, d1: datetime) -> BacktestResult:
+    """[d0, d1) penceresindeki KAPANAN işlemlerden oluşan sonuç (çok yıllı rapor: yıl dilimi). Tek koşuyu keser — motor yeniden başlatılmaz,
+    warm-up ve bakiye sürekli kalır. Dilimin başlangıç bakiyesi = penceredeki ilk işlemden önceki son kapanış bakiyesi (yoksa koşunun başlangıcı)."""
+    before = [t for t in res.trades if t.close_time is not None and t.close_time < d0]
+    inside = [t for t in res.trades if t.close_time is not None and d0 <= t.close_time < d1]
+    start_bal = before[-1].balance_after if before else res.initial_balance
+    end_bal = inside[-1].balance_after if inside else start_bal
+    eq = [(t, b) for t, b in res.equity if d0 <= t < d1]
+    return dataclasses.replace(res, trades=inside, equity=eq, initial_balance=start_bal, final_balance=end_bal, start=d0, end=d1)
+
+
+def year_windows(start: datetime, end: datetime) -> list[tuple[int, datetime, datetime]]:
+    """[start, end) aralığını takvim yıllarına böler (UTC)."""
+    out, y = [], start.year
+    last = (end - timedelta(seconds=1)).year
+    while y <= last:
+        a = max(start, datetime(y, 1, 1, tzinfo=start.tzinfo))
+        b = min(end, datetime(y + 1, 1, 1, tzinfo=start.tzinfo))
+        out.append((y, a, b))
+        y += 1
+    return out
+
+
+def metrics_row(res: BacktestResult) -> dict:
+    """Tablo satırı için düz (picklable) metrik sözlüğü."""
+    m = compute_metrics(res)
+    risk = sum((t.intent.risk_amount for t in res.trades), D0)
+    q5, nl = stop_quick_ratio(res.trades, 5)
+    return {"n": m.n, "wins": m.wins, "strike": m.strike_rate, "avg_r_net": m.avg_r_net, "total_r_net": m.total_r_net, "total_r": m.total_r,
+            "return_pct": m.return_pct, "max_dd_pct": m.max_dd_pct, "max_consec": m.max_consec_losses,
+            "comm_pct_risk": (m.commission / risk * 100) if risk else D0, "q5": q5, "losers": nl,
+            "classes": {c: {"n": len(ts), "r_net": sum((t.r_net for t in ts), D0)} for c in CLASSES
+                        if (ts := [t for t in res.trades if t.intent.trend_class == c])}}
