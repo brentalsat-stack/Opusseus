@@ -28,6 +28,7 @@ class ZoneParams:
     reaction_min_pips: Decimal   # reaction_min.pips (SD-R006)
     eqh_tol_pips: Decimal        # eqh_tolerance.pips (LQ-R001/R002)
     retire_after: Optional[int] = None   # uygulama sınırı (strateji parametresi değil): bu kadar mumdan eski zonlar izlenmez (M1 için bellek/hız)
+    inside_rule: str = "WICK"            # config `range_inside_rule`: WICK (varsayılan) | CLOSE — inside-bar zincirinde fitil mi kapanış mı (zones/detect.py)
 
     @property
     def pipette(self) -> Decimal:
@@ -40,7 +41,8 @@ class ZoneParams:
         if mode is None:
             raise ValueError(f"zone_draw_mode.{tf.value} tanımsız (config'e ekleyin)")
         return cls(cfg.pip_size(pair), mode, cfg.get("range_detection.min_candles"),
-                   Decimal(str(cfg.get("reaction_min.pips"))), Decimal(str(cfg.get("eqh_tolerance.pips"))))
+                   Decimal(str(cfg.get("reaction_min.pips"))), Decimal(str(cfg.get("eqh_tolerance.pips"))),
+                   None, cfg.get("range_inside_rule") or "WICK")
 
 
 @dataclass
@@ -146,9 +148,12 @@ class ZoneEngine:
         # M1'de REACTION_BASE_TO_TOP yalnız flip giriş kutusunu belirler; altta yatan pivot/range zonlar tüm koşu olarak çizilir
         mode = "CANDLE" if self.p.draw_mode == "CANDLE" else "RANGE"
         for g in (pivot_zone(self.candles, t, pip, mode),
-                  range_zone(self.candles, t, pip, self.p.min_chain, self.limits)):
+                  range_zone(self.candles, t, pip, self.p.min_chain, self.limits, self.p.inside_rule)):
             if g is not None:
-                out.append(self._mk(g.kind, g.origin, g.draw, g.top, g.bottom, g.first_index, t, self._context(g.kind)))
+                z = self._mk(g.kind, g.origin, g.draw, g.top, g.bottom, g.first_index, t, self._context(g.kind))
+                if g.swept:
+                    z.is_sweep = True                        # CLOSE kuralı: fitil mother aralığını süpürdü → sweep zone (LQ-R002, puan #5)
+                out.append(z)
         return out
 
     # ---- yapıya bağlama: SD-R005 ("zon X yapı kırılımına neden oldu") ----

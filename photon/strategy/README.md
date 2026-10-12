@@ -64,3 +64,6 @@ Sapma: DECISIONS §3 "M1 giriş kutusu = reaksiyon tabanı→tepesi" (T-QA); ön
 - `entry_zone_kind` hâlâ `EXTREME`; zon kimliği `M1-V<break_index>-D|S`, `Origin.V_REACTION`.
 - `NO_ENTRY_ZONE` yalnız geçersiz pencerede (başlangıç > bitiş) oluşabilir.
 **Açık (Q-Z11a):** "tabanı oluşturan ardışık karşı yönlü mumlar" kaynakta ölçülemez; uygulanan: taban mumu (rengi önemsiz) + doğrudan öncesindeki kesintisiz karşı renkli mumlar, pencere (mitigasyon) başında kesilir. Taban mumu CHoCH mumunun kendisiyse (1 mumluk bacak) kutu o mumun (+öncesi bearish'ler) aralığıdır; bu geniş olabilir (stop buna göre uzar). Test: `test_q_z11_*`.
+
+## Aynı giriş kutusu: tek sinyal (SAME_ENTRY_BOX) — kullanıcı kararı
+Aynı M15/M1 CHoCH'tan birden çok POI (örn. D1-170-R42, H4-917-P215, H4-1069-P244 — Eylül 16) aynı giriş kutusunu (aynı yön + entry + stop) üretiyordu → 3 ayrı sinyal. `EntryModel._one_signal_per_box`: aynı adımda aynı kutuyu üreten sinyallerden en yüksek POI puanlısı kalır (eşitlikte daha üst TF, sonra daha eski POI); diğerleri `REJECTED / SAME_ENTRY_BOX(kazanan <id>)` olarak raporlanır, sinyal vermemiş sayılır (`n_signals` geri alınır — Q-E5 hakkı tüketilmez, POI başka bir CHoCH'ta yeniden deneyebilir). Önceki adımdan aktif emir/pozisyonla aynı kutu da elenir. Huni raporunda ayrı satır. Giriş kutusu kimliği gerçek icra TF'sini yazar (`M15-V…`, M1 profilinde `M1-V…`).

@@ -393,3 +393,99 @@ def test_trace_bos_cli_end_to_end(tmp_path, capsys):
     cap = capsys.readouterr().out
     assert rc == 0 and "Q-Z5 penceresi" in cap and "-- mumlar --" in cap and "sonuç: bu olaya bağlı zonlar" in cap
     assert out.read_text(encoding="utf-8").startswith(cap.split("\n")[0])
+
+
+# ---------------- range_inside_rule (WICK | CLOSE) — H4 1048..1052 örneğinin sentetik kopyası ----------------
+def _h4(i, o, h, l, c):
+    f = lambda x: D(str(x))
+    return Candle("EURUSD", Timeframe.H4, datetime(2021, 8, 31, 17, tzinfo=UTC) + timedelta(hours=4 * i), f(o), f(h), f(l), f(c), True)
+
+
+SWEEP_CHAIN = [_h4(0, 1.18050, 1.18130, 1.17978, 1.18020),     # mother (1048)
+               _h4(1, 1.18020, 1.18100, 1.17990, 1.18060),     # 1049
+               _h4(2, 1.18060, 1.18110, 1.17995, 1.18040),     # 1050
+               _h4(3, 1.18040, 1.18090, 1.17935, 1.18054),     # 1051: fitil mother low'un altında, kapanış içeride
+               _h4(4, 1.18054, 1.18300, 1.18040, 1.18250)]     # 1052: mother high'ın üstünde KAPANIŞ → kopuş
+
+
+def test_range_inside_rule_wick_gives_no_zone_close_gives_demand_zone_with_extended_wick_and_sweep_flag():
+    from photon.zones.detect import range_zone
+    pip = D("0.00001")
+    assert range_zone(SWEEP_CHAIN, 4, pip, 3, None, "WICK") is None                                  # mevcut kural: 1051 zinciri kırar
+    g = range_zone(SWEEP_CHAIN, 4, pip, 3, None, "CLOSE")
+    assert (g.kind.value, g.bottom, g.top, g.first_index, g.swept) == ("DEMAND", D("1.17935"), D("1.18130"), 0, True)   # sınır en uç fitile genişler
+    assert range_zone(SWEEP_CHAIN, 4, pip, 3) is None                                                # varsayılan WICK
+    with pytest.raises(ValueError):
+        range_zone(SWEEP_CHAIN, 4, pip, 3, None, "XX")
+
+
+def test_close_rule_requires_closes_inside_and_exit_only_by_close():
+    from photon.zones.detect import range_zone
+    pip = D("0.00001")
+    bad_close = list(SWEEP_CHAIN)
+    bad_close[3] = _h4(3, 1.18040, 1.18200, 1.17935, 1.18140)       # 1051 KAPANIŞ mother high'ın üstünde → zincir kırılır
+    assert range_zone(bad_close, 4, pip, 3, None, "CLOSE") is None
+    no_exit = list(SWEEP_CHAIN)
+    no_exit[4] = _h4(4, 1.18054, 1.18300, 1.18040, 1.18100)          # kapanış mother aralığında → kopuş yok (fitil yetmez)
+    assert range_zone(no_exit, 4, pip, 3, None, "CLOSE") is None
+    # fitil taşmayan klasik zincir: CLOSE sonucu WICK ile aynı sınırlar, sweep etiketi yok
+    plain = [_h4(0, 1.1805, 1.1813, 1.1798, 1.1802), _h4(1, 1.1802, 1.1810, 1.1799, 1.1806), _h4(2, 1.1806, 1.1811, 1.1800, 1.1804),
+             _h4(3, 1.1804, 1.1830, 1.1803, 1.1825)]
+    w, c = range_zone(plain, 3, pip, 3, None, "WICK"), range_zone(plain, 3, pip, 3, None, "CLOSE")
+    assert (w.bottom, w.top) == (c.bottom, c.top) and w.swept is False and c.swept is False
+
+
+def test_zone_engine_labels_sweep_zone_and_config_option():
+    from photon.structure import StructureEngine, StructureParams
+    from photon.zones.engine import ZoneEngine, ZoneParams
+    cfg = load_config()
+    assert cfg.get("range_inside_rule") == "WICK" and ZoneParams.from_config(cfg, "EURUSD", Timeframe.H4).inside_rule == "WICK"
+    ccfg = apply_overrides(cfg, {"range_inside_rule": "CLOSE"})
+    zp = ZoneParams.from_config(ccfg, "EURUSD", Timeframe.H4)
+    assert zp.inside_rule == "CLOSE"
+    for rule, expect in (("WICK", 0), ("CLOSE", 1)):
+        st = StructureEngine(Timeframe.H4, StructureParams.from_config(cfg, "EURUSD", Timeframe.H4))
+        ze = ZoneEngine(Timeframe.H4, dataclasses.replace(zp, inside_rule=rule), st)
+        for c in SWEEP_CHAIN:
+            ze.update(c, [])
+        rng = [z for z in ze.zones if z.origin.value == "RANGE"]
+        assert len(rng) == expect
+        if rng:
+            assert rng[0].is_sweep is True and ze.sweep_flag(rng[0]) is True and (rng[0].bottom, rng[0].top) == (D("1.17935"), D("1.18130"))
+    with pytest.raises(Exception):
+        apply_overrides(cfg, {"range_inside_rule": "XX"}).require("zones")
+
+
+# ---------------- aynı giriş kutusu: tek sinyal; kutu kimliği gerçek TF ----------------
+def test_same_entry_box_gives_one_signal_best_score_wins_and_losers_are_reported():
+    from photon.tests.test_entry_model import two_setups
+    s1, s2, out = two_setups(dup="ALLOW")
+    sig = [e for e in out if e.kind == "SIGNAL"]
+    rej = [e for e in out if e.kind == "REJECTED"]
+    assert len(sig) == 1 and len(rej) == 1 and rej[0].reason.startswith("SAME_ENTRY_BOX(kazanan ")
+    loser = rej[0].setup
+    winner = sig[0].setup
+    assert loser is not winner and winner.state is State.ORDER_PENDING and loser.state is State.WATCHING and loser.n_signals == 0 and winner.n_signals == 1
+    assert (loser.intent is None) and any(r.reason == "SAME_ENTRY_BOX" for r in loser.rejections)
+    assert [r[1] for r in loser.trace][-1] == "SAME_ENTRY_BOX" and "SIGNAL" not in [r[1] for r in loser.trace]
+
+
+def test_v8_entry_box_id_names_the_real_exec_tf():
+    from photon.strategy.entry_model import reaction_box
+    t0 = datetime(2021, 9, 1, 9, 0, tzinfo=UTC)
+    ms = [_c(t0, 1.1, 1.1002, 1.0998, 1.1001), _c(t0 + timedelta(minutes=1), 1.1001, 1.1004, 1.0999, 1.1003)]
+    m15 = [dataclasses.replace(c, tf=Timeframe.M15) for c in ms]
+    z = reaction_box(m15, 0, 1, Trend.BULL)
+    assert z.id.startswith("M15-V") and z.tf is Timeframe.M15
+    assert reaction_box(ms, 0, 1, Trend.BULL).id.startswith("M1-V")
+
+
+def test_v8_run_uses_m15_box_ids_and_unique_boxes_per_signal(v8_run):
+    e, res, m1, cfg = v8_run
+    sig = [ev for ev in res.events if ev.kind == "SIGNAL"]
+    assert all(ev.intent.entry_zone_id.startswith(("M15-V", "M15-")) or ev.intent.entry_zone_kind == "FLIP" for ev in sig)
+    # aynı adımda (aynı kutu) çoğaltılmış sinyal olmamalı: aynı zamanda üretilen sinyallerin kutuları farklıdır
+    by_time = {}
+    for ev in sig:
+        by_time.setdefault(ev.time, []).append((ev.intent.side, ev.intent.entry, ev.intent.stop))
+    assert all(len(v) == len(set(v)) for v in by_time.values())

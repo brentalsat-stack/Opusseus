@@ -96,7 +96,7 @@ class StrategyRunner:
         self.m1_struct = StructureEngine(pf.exec_tf, StructureParams.internal_only_params(pip), None, live_from)
         zp1 = ZoneParams.from_config(cfg, pair, Timeframe.M1)
         self.m1_zones = ZoneEngine(pf.exec_tf, ZoneParams(zp1.pip_size, zp1.draw_mode, zp1.min_chain, zp1.reaction_min_pips,
-                                                          zp1.eqh_tol_pips, M1_ZONE_RETIRE_CANDLES), self.m1_struct)
+                                                          zp1.eqh_tol_pips, M1_ZONE_RETIRE_CANDLES, zp1.inside_rule), self.m1_struct)
         self.m1: list[Candle] = []                  # her zaman M1 mumları (canlılık, fiyat akışı)
         self.exec_c: list[Candle] = self.m1 if pf.exec_tf is Timeframe.M1 else []     # icra TF mumları (modelin `view.m1`'i)
         self.m15_events: list[StructureEvent] = []  # rol M15 = profilin orta TF'sinin BOS/CHoCH olayları

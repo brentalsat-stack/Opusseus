@@ -335,7 +335,10 @@ def test_t_dup_01_second_limit_for_same_poi_is_rejected_by_policy():
 
 def test_duplicate_policy_allow_and_replace():
     s1, s2, out = two_setups(dup="ALLOW")
-    assert [e.kind for e in out].count("SIGNAL") == 2
+    # iki POI aynı CHoCH'tan AYNI giriş kutusunu üretir → tek sinyal (en yüksek puanlı), diğeri SAME_ENTRY_BOX olarak raporlanır
+    kinds = [e.kind for e in out]
+    assert kinds.count("SIGNAL") == 1 and kinds.count("REJECTED") == 1
+    assert next(e for e in out if e.kind == "REJECTED").reason.startswith("SAME_ENTRY_BOX")
     s1, s2, out = two_setups(dup="REPLACE")
     assert [e.kind for e in out].count("SIGNAL") == 2 and s1.state is State.WATCHING and s2.state is State.ORDER_PENDING
 

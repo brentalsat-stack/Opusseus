@@ -44,6 +44,15 @@ variants:
     desc: "V8a ama %25 DISTAL'dan (alternatif yorum, Q-V8-2)"
     overrides: {execution_profile: M15, entry_price_mode: FIB25_FROM_DISTAL, session_gate: false, min_refine_pips: 3, management_second_target: NEXT_MID_ZONE}
 
+  # ---- V9: range_inside_rule=CLOSE (kullanıcı kararı; eğitmenin "sweep zone / wick zone"u): inside-bar zincirinde yalnız KAPANIŞLAR ilk mumun high–low'u içinde
+  #      olmalı, fitil taşabilir; zon sınırı en uç fitile genişler, zon sweep_zone=True etiketlenir. Çıkış (kopuş) yine yalnız kapanışla.
+  - name: V9a
+    desc: "V8a + range_inside_rule=CLOSE"
+    overrides: {execution_profile: M15, entry_price_mode: FIB25_FROM_PROXIMAL, session_gate: false, min_refine_pips: 3, management_second_target: NEXT_MID_ZONE, range_inside_rule: CLOSE}
+  - name: V9b
+    desc: "V0 + range_inside_rule=CLOSE"
+    overrides: {range_inside_rule: CLOSE}
+
 # V7: işlemleri ETKİLEMEZ — taban varyantın işlemleri için V-shape N'e göre puan dağılımı (config'teki N dahil edilir)
 vshape_report:
   base: V0

@@ -153,6 +153,7 @@ def funnel(res: BacktestResult) -> list[tuple[str, dict]]:
     add("5. Giriş zonu bulundu", "ENTRY_ZONE_OK")
     for st in sorted(k for k in cnt if k.startswith("GATE_FAIL:")):
         add(f"   kapı elendi: {st.split(':', 1)[1]} (aynı anda birden çok kapı olabilir)", st)
+    add("   aynı giriş kutusu: başka POI'ye bağlandı (SAME_ENTRY_BOX)", "SAME_ENTRY_BOX")
     add("6. Sinyal", "SIGNAL")
     can = Counter(e.setup.trend_class for e in res.events if e.kind == "CANCELLED")
     rows.append(("   dolmadan iptal", {**{k: can.get(k, 0) for k in CLASSES}, "TOPLAM": sum(can.values())}))
@@ -447,8 +448,8 @@ def period_diagnostics(res: BacktestResult, d0: datetime, d1: datetime, tz: Zone
                 cnt[stage][cls] += 1
     L.append("── 1. Dönem içi huni (olay sayıları, trend sınıfı kırılımı) ──")
     L.append(f"  {'aşama':<62}" + "".join(f"{c:>13}" for c in CLASSES + ("TOPLAM",)))
-    for stage in sorted(cnt, key=lambda k: (["MITIGATED", "PERMISSION", "CHOCH", "NO_ENTRY", "ENTRY_ZONE", "GATE_FAIL", "SIGNAL", "DUPLICATE"].index(
-            next((x for x in ["MITIGATED", "PERMISSION", "CHOCH", "NO_ENTRY", "ENTRY_ZONE", "GATE_FAIL", "SIGNAL", "DUPLICATE"] if k.startswith(x)), "DUPLICATE")), k)):
+    for stage in sorted(cnt, key=lambda k: (["MITIGATED", "PERMISSION", "CHOCH", "NO_ENTRY", "ENTRY_ZONE", "GATE_FAIL", "SIGNAL", "SAME_ENTRY_BOX", "DUPLICATE"].index(
+            next((x for x in ["MITIGATED", "PERMISSION", "CHOCH", "NO_ENTRY", "ENTRY_ZONE", "GATE_FAIL", "SIGNAL", "SAME_ENTRY_BOX", "DUPLICATE"] if k.startswith(x)), "DUPLICATE")), k)):
         c = cnt[stage]
         L.append(f"  {stage:<62}" + "".join(f"{c.get(k, 0):>13}" for k in CLASSES) + f"{sum(c.values()):>13}")
     fl = [t for t in res.trades + res.open_trades if d0 <= t.fill_time < d1]

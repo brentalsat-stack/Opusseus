@@ -25,6 +25,7 @@ class Geometry:
     top: Decimal
     bottom: Decimal
     first_index: int
+    swept: bool = False      # range_inside_rule=CLOSE: zincirde fitil mother aralığının ötesine (kopuşun TERS yönünde) taştı → sweep zone (LQ-R002)
 
 
 def pivot_zone(candles: Sequence[Candle], t: int, pipette: Decimal, draw: str) -> Optional[Geometry]:
@@ -62,10 +63,15 @@ def pivot_zone(candles: Sequence[Candle], t: int, pipette: Decimal, draw: str) -
 
 
 def range_zone(candles: Sequence[Candle], t: int, pipette: Decimal, min_chain: int,
-               stats: Optional[dict] = None) -> Optional[Geometry]:
-    """SD-R001 (kullanıcı tanımı): t kopuş mumu; zincir = mother + ≥(min_chain−1) inside bar."""
+               stats: Optional[dict] = None, inside_rule: str = "WICK") -> Optional[Geometry]:
+    """SD-R001 (kullanıcı tanımı): t kopuş mumu; zincir = mother + ≥(min_chain−1) inside bar.
+    `inside_rule` (config `range_inside_rule`, kullanıcı kararı): WICK (varsayılan) = zincir mumlarının HIGH–LOW'u mother'ın high–low'u içinde;
+    CLOSE = yalnız KAPANIŞLAR mother'ın high–low'u içinde (fitil dışarı taşabilir = sweep); zon sınırı zincirdeki en uç fitile genişler.
+    Çıkış (kopuş) her iki kuralda yalnız kapanışla."""
+    if inside_rule not in ("WICK", "CLOSE"):
+        raise ValueError(f"bilinmeyen range_inside_rule {inside_rule!r}")
     c = candles[t]
-    mx = None            # m+1..t-1 arası en yüksek high
+    mx = None            # m+1..t-1 arası en yüksek high (CLOSE kuralında en yüksek KAPANIŞ)
     mn = None
     best: Optional[int] = None
     stop = max(-1, t - 1 - MAX_CHAIN_LOOKBACK)
@@ -75,7 +81,10 @@ def range_zone(candles: Sequence[Candle], t: int, pipette: Decimal, min_chain: i
             inside = mx - hm < pipette and lm - mn < pipette
             if inside and (c.close - hm >= pipette or lm - c.close >= pipette):
                 best = m                       # daha dış (daha eski) geçerli mother kopuşa uğruyorsa onu tercih et
-        h, l = candles[m].high, candles[m].low
+        if inside_rule == "CLOSE":
+            h = l = candles[m].close
+        else:
+            h, l = candles[m].high, candles[m].low
         mx = h if mx is None else max(mx, h)
         mn = l if mn is None else min(mn, l)
     if stats is not None and stop > -1 and best == stop + 1:
@@ -85,4 +94,9 @@ def range_zone(candles: Sequence[Candle], t: int, pipette: Decimal, min_chain: i
     chain = range(best, t)
     top, bottom = max(candles[k].high for k in chain), min(candles[k].low for k in chain)
     kind = ZoneKind.DEMAND if c.close - candles[best].high >= pipette else ZoneKind.SUPPLY
-    return Geometry(kind, Origin.RANGE, "RANGE", top, bottom, best)
+    swept = False
+    if inside_rule == "CLOSE":                 # sweep: kopuşun TERS yönünde mother aralığının ötesine fitil (talepte alt, arzda üst)
+        later = [candles[k] for k in range(best + 1, t)]
+        swept = (any(candles[best].low - x.low >= pipette for x in later) if kind is ZoneKind.DEMAND
+                 else any(x.high - candles[best].high >= pipette for x in later))
+    return Geometry(kind, Origin.RANGE, "RANGE", top, bottom, best, swept)

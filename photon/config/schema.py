@@ -212,6 +212,7 @@ MODULES: dict[str, ModuleSpec] = {
         R("range_detection.type", one_of("INSIDE_BAR_CHAIN")),
         R("range_detection.min_candles", int_ge(2)),
         R("range_detection.breakout", one_of("CLOSE_OUTSIDE")),
+        R("range_inside_rule", one_of("WICK", "CLOSE")),
         R("breakout_strength.extra_criterion", one_of("NONE")),
         R("reaction_min.pips", num_gt(0)),
         R("reaction_min.measured", non_empty_str),

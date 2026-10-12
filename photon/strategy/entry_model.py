@@ -223,7 +223,8 @@ def reaction_box(m1: Sequence[Candle], origin: int, end: int, direction: Trend) 
     else:
         top, bottom = m1[base].high, min(c.low for c in grp)
         kind = ZoneKind.SUPPLY
-    return Zone(f"M1-V{end}-{kind.value[0]}", Timeframe.M1, kind, Origin.V_REACTION, "REACTION", top, bottom, first, end,
+    tf = m1[end].tf                                  # icra TF'si (M1 profili: M1; V8: M15) — kimlik "M15-V…" gibi rol değil gerçek TF'yi yazar
+    return Zone(f"{tf.value}-V{end}-{kind.value[0]}", tf, kind, Origin.V_REACTION, "REACTION", top, bottom, first, end,
                 m1[end].open_time)
 
 
@@ -316,6 +317,48 @@ class EntryModel:
                 out += self._mitigated(s, view, c)
             elif s.state is State.CONFIRMATION_PENDING:
                 out += self._confirming(s, view, c)
+        return self._one_signal_per_box(out, view.now)
+
+    def _one_signal_per_box(self, events: list[SignalEvent], now: datetime) -> list[SignalEvent]:
+        """Aynı giriş kutusu (aynı yön + entry + stop) için tek sinyal: aynı adımda birden çok POI aynı CHoCH/kutudan sinyal verirse
+        en yüksek POI puanlısı kalır (eşitlikte daha üst TF, sonra daha eski POI); diğerleri 'SAME_ENTRY_BOX' olarak RAPORLANIR ve
+        sinyal vermemiş sayılır (n_signals geri alınır; POI başka bir CHoCH'ta yeniden deneyebilir). Önceki adımlardan aktif bir
+        emir/pozisyonla aynı kutu da elenir."""
+        sigs = [e for e in events if e.kind == "SIGNAL" and e.setup.state is State.ORDER_PENDING]     # REPLACE ile aynı adımda iptal edilmiş eski sinyal hariç
+        if not sigs:
+            return events
+        key = lambda it: (it.side, it.entry, it.stop)
+        busy = {key(x.intent): x for x in self.setups if x.intent is not None and x.state in ACTIVE_ORDER_STATES
+                and not any(x is e.setup for e in sigs)}
+        groups: dict[tuple, list[SignalEvent]] = {}
+        for e in sigs:
+            groups.setdefault(key(e.intent), []).append(e)
+        drop: dict[int, str] = {}
+        for k, grp in groups.items():
+            order = sorted(grp, key=lambda e: (-e.intent.poi_score, -e.setup.poi.tf.delta.total_seconds(), e.setup.poi.created_time))
+            win = busy.get(k)
+            if win is None:
+                win, rest = order[0].setup, order[1:]
+            else:
+                rest = order
+            for e in rest:
+                drop[id(e)] = win.id
+        if not drop:
+            return events
+        out: list[SignalEvent] = []
+        for e in events:
+            if id(e) not in drop:
+                out.append(e)
+                continue
+            s_, winner = e.setup, drop[id(e)]
+            s_.to(State.WATCHING, now, "SAME_ENTRY_BOX")
+            s_.n_signals -= 1
+            if s_.trace and s_.trace[-1][1] == "SIGNAL":
+                s_.trace.pop()
+            s_.log(now, "SAME_ENTRY_BOX", f"kazanan={winner} entry={e.intent.entry} stop={e.intent.stop}")
+            s_.reject(now, "SAME_ENTRY_BOX", "aynı giriş kutusu için tek sinyal", f"kazanan {winner}")
+            s_.intent = None
+            out.append(SignalEvent("REJECTED", s_, e.time, reason=f"SAME_ENTRY_BOX(kazanan {winner})"))
         return out
 
     # ---- WATCHING ----

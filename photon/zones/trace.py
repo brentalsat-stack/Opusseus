@@ -39,7 +39,7 @@ def explain_pivot(candles: Sequence[Candle], t: int, pipette: Decimal) -> str:
     return f"{kind}: koşu ≥ {n} mum"
 
 
-def explain_range(candles: Sequence[Candle], t: int, pipette: Decimal, min_chain: int) -> str:
+def explain_range(candles: Sequence[Candle], t: int, pipette: Decimal, min_chain: int, inside_rule: str = "WICK") -> str:
     """SD-R001 anlatımı: t kopuş mumu için son birkaç mother adayı neden elendi."""
     c = candles[t]
     rows = []
@@ -53,7 +53,7 @@ def explain_range(candles: Sequence[Candle], t: int, pipette: Decimal, min_chain
             rows.append(f"m={m}: zincir {t - m} mum, inside={'E' if inside else 'H'}, kapanışla çıkış={'E' if brk else 'H'}")
             if len(rows) >= 4:
                 break
-        h, l = candles[m].high, candles[m].low
+        h, l = (candles[m].close,) * 2 if inside_rule == "CLOSE" else (candles[m].high, candles[m].low)
         mx = h if mx is None else max(mx, h)
         mn = l if mn is None else min(mn, l)
     return "; ".join(rows) if rows else f"zincir için yeterli geçmiş mum yok (min_chain={min_chain})"
@@ -84,7 +84,7 @@ def trace_events(st: StructureEngine, ze: ZoneEngine, candles: Sequence[Candle],
     pip = ze.p.pipette
     evs = [e for e in st.events if e.type in types and (direction is None or e.dir is direction) and start <= e.time < end and e.origin_index is not None]
     L = [f"{len(evs)} olay ({', '.join(t.value for t in types)}{' ' + direction.value if direction else ''}) {start:%Y-%m-%d} → {end:%Y-%m-%d} "
-         f"[{ze.tf.value}; pipette {pip}; min_chain {ze.p.min_chain}; çizim modu {ze.p.draw_mode}]"]
+         f"[{ze.tf.value}; pipette {pip}; min_chain {ze.p.min_chain}; çizim modu {ze.p.draw_mode}; range_inside_rule {ze.p.inside_rule}]"]
     for e in evs[:max_events]:
         o, b = e.origin_index, e.break_index
         kind = ZoneKind.DEMAND if e.dir is Trend.BULL else ZoneKind.SUPPLY
@@ -101,9 +101,9 @@ def trace_events(st: StructureEngine, ze: ZoneEngine, candles: Sequence[Candle],
         L.append("-- her kopuş mumu adayı için algılama (pencere içi) --")
         for i in range(max(1, o), b + 1):
             g = pivot_zone(candles, i, pip, ze.p.draw_mode if ze.p.draw_mode in ("CANDLE", "PIVOT", "RANGE") else "RANGE")
-            r = range_zone(candles, i, pip, ze.p.min_chain)
+            r = range_zone(candles, i, pip, ze.p.min_chain, None, ze.p.inside_rule)
             L.append(f"  t={i} {_tstr(candles, i)}Z pivot: {'ZON ' + g.kind.value + ' [' + str(g.bottom) + '–' + str(g.top) + ']' if g else 'yok'} ← {explain_pivot(candles, i, pip)}")
-            L.append(f"        range: {'ZON ' + r.kind.value + ' [' + str(r.bottom) + '–' + str(r.top) + ']' if r else 'yok'} ← {explain_range(candles, i, pip, ze.p.min_chain)}")
+            L.append(f"        range: {'ZON ' + r.kind.value + ' [' + str(r.bottom) + '–' + str(r.top) + ']' if r else 'yok'} ← {explain_range(candles, i, pip, ze.p.min_chain, ze.p.inside_rule)}")
         L.append("-- penceredeki (ve yakın çevresindeki) tüm zonlar --")
         near = [z for z in ze.zones if o - 6 <= z.created_index <= b + 3]
         for z in near:

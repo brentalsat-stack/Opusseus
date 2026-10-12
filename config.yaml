@@ -57,6 +57,7 @@ range_extreme_filter:                           # D-25 / PD-R003 — ZORUNLU kap
   range_tf: M15                                 # varsayılan; Aşama 4'te teyit edilecek
 swing_hold_confirmation: H4_CHOCH               # D-26 KARAR
 range_detection: {type: INSIDE_BAR_CHAIN, min_candles: 3, breakout: CLOSE_OUTSIDE}   # B-01
+range_inside_rule: WICK                 # KULLANICI KARARI: WICK = zincir mumlarının high–low'u ilk mumun high–low'u içinde (mevcut) | CLOSE = yalnız KAPANIŞLAR içinde, fitil taşabilir (sweep zone; zon sınırı en uç fitile genişler, sweep_zone=True). Çıkış yine yalnız kapanışla
 breakout_strength: {extra_criterion: NONE}      # yapı kırılımı yeterli
 reaction_min: {pips: 2, measured: REACTION_START_TO_REACTION_EXTREME}   # B-02
 eqh_tolerance: {pips: 2}                        # LQ-R001

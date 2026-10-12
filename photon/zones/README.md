@@ -106,3 +106,11 @@ Mekanizma (kod incelemesi + sentetik üretim): iki durum da **"kırılış mumu,
   referans boş; bir sonraki geçerli kırılıma kadar CHoCH üretilmez.
 Öneri (davranışı değiştirir, onayınız gerek — **Q-S09**): kırılış mumunun KENDİ ucunu, bir sonraki mum onu kıramazsa aday say
 (referansı bir mum geciktirerek belirle; geleceğe bakış yok). Bu iki durumu da kapatır; a'da referansı güncel tutar, b'de referans boş kalmaz.
+
+## range_inside_rule (WICK | CLOSE) — kullanıcı kararı (gerçek veri teşhisi, H4 BOS BULL 2021-09-01 13:00Z)
+Kök neden: `trace-bos` — 1048–1050 üç mumluk range zinciri; 1051 (09-01 05:00Z) fitille range low'un altına indi (L 1.17935 < 1.17978) ama kapanış içeride (1.18054); 1052 range üstünde kapandı. SD-R001 uygulaması (zincirde her mumun HIGH–LOW'u mother içinde) 1051'de zinciri kırdığı için zon doğmadı; eğitmen bunu "sweep zone / wick zone" olarak kullanıyor.
+- `range_inside_rule: WICK` (config varsayılanı, mevcut): zincir mumlarının high–low'u mother'ın high–low'u içinde.
+- `range_inside_rule: CLOSE`: yalnız zincir mumlarının KAPANIŞLARI mother'ın high–low'u içinde olmalı; fitil dışarı taşabilir. Zon sınırı zincirdeki en uç fitile genişler (üst = zincirdeki en yüksek high, alt = en düşük low). Kopuş her iki kuralda yalnız KAPANIŞLA (≥1 pipette).
+- CLOSE ile bir zincirde fitil, kopuşun TERS yönünde mother aralığının ≥1 pipette ötesine taştıysa zon `is_sweep=True` etiketlenir (LQ-R002, POI puan kriteri #5 `sweep_zone`); fitil taşmayan zincir WICK ile aynı sonucu verir ve etiketlenmez (sweep gerçekleşmedi). **Yorum notu:** "sweep_zone=True" yalnız gerçek süpürme olduğunda verilir.
+- Tüm zon motorlarına (D1/H4/M15 ve icra M1/M15) uygulanır. Testler: `test_range_inside_rule_wick_gives_no_zone_close_gives_demand_zone_*` (H4 örneğinin sentetik kopyası: WICK → zon yok, CLOSE → DEMAND [1.17935–1.18130]), `test_close_rule_requires_closes_inside_*`, `test_zone_engine_labels_sweep_zone_and_config_option`. `trace-bos` çıktısı kuralı gösterir.
+- Varyantlar: V9a = V8a + CLOSE, V9b = V0 + CLOSE (`variants.yaml`).
