@@ -34,6 +34,7 @@ swing_min_pullback_pips:             # MS-R008; DECISIONS §2
 swing_threshold_inclusive: true      # D-16 KARAR: ≥ (en az)
 min_swing_candles: 2                 # C-05
 trend_change_confirmation: SINGLE_BOS   # D-14 KARAR
+internal_ref_reacquire: true            # Q-S11 HATA DÜZELTMESİ: iç referans kaybolunca (Q-S03b / Q-S09-fail) her mumda yeniden ara; false = eski davranış (uzun koşuda aylarca CHoCH üretmeyebilir) — yalnız A/B karşılaştırma için
 counter_htf_require_double_bos: true    # D-15 KARAR: 4H'ye karşı işlemde M15'te çift BOS (HH+HL)
 
 # Q-S01 KULLANICI KARARI (kursta süre yok): otomatik warm-up, TF bazında geriden başlama (gün).

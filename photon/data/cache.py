@@ -61,6 +61,11 @@ class CandleStore:
             d = [Decimal(x) for x in p]
             yield QuoteCandle(pair, tf, datetime.fromtimestamp(t, UTC), OHLC(*d[:4]), OHLC(*d[4:]), bool(comp), n)
 
+    def bounds(self, source: str, pair: str, tf: Timeframe) -> tuple[datetime, datetime] | None:
+        """Önbellekteki ilk ve son mum zamanı (UTC); veri yoksa None."""
+        r = self._db.execute("SELECT MIN(t), MAX(t) FROM candles WHERE source=? AND pair=? AND tf=?", (source, pair, tf.value)).fetchone()
+        return None if r is None or r[0] is None else (datetime.fromtimestamp(r[0], UTC), datetime.fromtimestamp(r[1], UTC))
+
     def chunk_status(self, source: str, pair: str, key: str) -> str | None:
         r = self._db.execute("SELECT status FROM chunks WHERE source=? AND pair=? AND key=?",
                              (source, pair, key)).fetchone()

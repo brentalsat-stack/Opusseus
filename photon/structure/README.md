@@ -78,3 +78,10 @@ internal_ref_time: "2021-09-01T09:45:00Z"
 ```
 Çıktı: `structure_out/EURUSD_M15_structure.csv` (olay listesi) ve `.png` (işaretli grafik). Veri: önbellekteki M1 (BID),
 H4/D1 NY-17:00 sınırlarıyla resample.
+
+
+## Q-S11 — iç referans kilitlenmesi (HATA DÜZELTMESİ, çok yıllı gerçek koşuda bulundu)
+**Belirti:** 2016–2023 sürekli koşuda V0/V9b'de 2017-07→2018-12 ve 2022-01→2023-12 boyunca icra (M1) CHoCH'u hiç yok (mitigasyon/izin normal); V8a/V9a'da 2019 işlemsiz.
+**Kök neden (sentetik uzun koşuda birebir üretildi):** CHoCH sonrası yeni referans bulunamazsa (Q-S03b) ya da Q-S09 ertelemesi başarısız olursa `iref=None` kalıyordu. Bu durumda `ipend` (bekleyen aday uç) yalnızca `ipend=None` iken atanır; eski bir `ipend` fiyatın çok uzağında kaldıkça ne referans (iref) ne CHoCH üretilebiliyordu — fiyat bekleyen adayı kırana kadar (haftalar/aylar; sentetikte 224 000 mum ≈ 5 ay referanssız, bazı aylarda 0 CHoCH). Aynı iç-yapı mantığı HTF motorlarında ve M15 icra motorunda da vardı.
+**Düzeltme (`StructureEngine._reacquire_ref`, `StructureParams.reacquire_ref`, config `internal_ref_reacquire: true`):** referans yokken her mumda Q-S09 mantığı sürer: önceki mumun karşı-yön ucu, bu mum onu ≥1 pipette kıramadıysa referans olur (MS-R003 'en yakın aday'; geleceğe bakış yok); referanstan önce kalan eski `ipend` atılır (sıra: referans → bekleyen). Sentetikte referanssız en uzun süre 224 000 → ≤14 mum; sağlıklı aylarda CHoCH sayıları aynı mertebede. **Davranış notu:** yalnızca referansın eksik olduğu durumlarda sonuç değişir (eskiden bu durumlarda olay üretilmiyordu) → tüm V* sonuçları değişir; eski davranış A/B için `V0L` varyantı (`internal_ref_reacquire: false`).
+**Teşhis:** `limit_report`'ta `struct_<exec|D1|H4|M15>_iref_none_max_run` (ardışık referanssız en uzun süre; kilitlenmede binlerce mum) ve `_ref_reacquired`; ay bazında huni tablosunda `icra_choch_olay` (icra yapı motorunun o ay ürettiği CHoCH sayısı) — 0 ise neden satırı "icra yapı motoru bu ay HİÇ CHoCH üretmedi" yazar. Testler: `photon/tests/test_long_run.py`.

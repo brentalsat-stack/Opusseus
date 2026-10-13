@@ -50,6 +50,9 @@ class StructureEngine:
         self.C: list[Decimal] = []
         self.T: list = []
         self.events: list[StructureEvent] = []
+        self._none_run = 0
+        self.ref_reacquired = 0                    # Q-S11: yeniden bulunan referans sayısı
+        self.iref_none_max_run = 0                 # teşhis: iç referansın ardışık en uzun yokluğu (mum)
         self.swing_log: list[SwingPoint] = []      # oluşan strong noktalar + onaylanan swing uçları (likidite seviyeleri için)
         self.diagnostics: list[Diagnostic] = []    # Q-S03 köşe durumları (sayaç + örnek)
         # swing
@@ -345,7 +348,30 @@ class StructureEngine:
         return []
 
     def _step_internal(self, t: int) -> list[StructureEvent]:
-        return self._resolve_deferred(t) + self._step_internal_core(t)
+        evs = self._resolve_deferred(t) + self._step_internal_core(t)
+        if self.iref is None and self.p.reacquire_ref and self._defer is None and not evs:
+            evs = self._reacquire_ref(t)
+        if self.iref is None:                                  # teşhis: referanssız kalınan ardışık mum sayısı (kilitlenme göstergesi)
+            self._none_run += 1
+            self.iref_none_max_run = max(self.iref_none_max_run, self._none_run)
+        else:
+            self._none_run = 0
+        return evs
+
+    def _reacquire_ref(self, t: int) -> list[StructureEvent]:
+        """Q-S11 (HATA DÜZELTMESİ — uzun koşuda iç yapı kilitleniyordu): CHoCH sonrası referans bulunamadıysa (Q-S03b) ya da Q-S09 ertelemesi
+        başarısız olduysa `iref=None` kalıyordu; bu durumda yeni aday ucu (ipend) yalnızca ipend=None iken atandığından, eski bir ipend
+        fiyatın çok uzağında kaldıkça ne referans ne CHoCH üretilebiliyordu (haftalar/aylar boyunca). Çözüm, Q-S09 mantığının sürekli hâli:
+        referans yokken her mumda önceki mumun karşı-yön ucu, bu mum onu ≥1 pipette kıramadıysa referans olur (MS-R003 'en yakın aday'
+        tanımı; geleceğe bakış yok). Referanstan ÖNCE kalan eski ipend atılır (aday sırası: referans → bekleyen)."""
+        d, e, pip = t - 1, self.e, self.p.pipette
+        if d < 0 or self._lo(d, e) - self._lo(t, e) >= pip:
+            return []
+        self._set_iref((e * self._lo(d, e), d), e, t)
+        if self.ipend is not None and self.ipend[1] <= d:
+            self.ipend = None
+        self.ref_reacquired += 1
+        return [self._mk_event(EventType.INTERNAL_REF, self._trend(e), e * self._lo(d, e), t, False, None, "Q-S11", "MS-R003")]
 
     def _internal_bootstrap(self, t: int) -> list[StructureEvent]:
         """internal_only motor (M1): ilk iç kırılıma kadar durum yok. MS-R002 aday uçları iki yönde izlenir; ilk wick kırılımı

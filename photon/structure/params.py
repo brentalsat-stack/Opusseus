@@ -15,6 +15,7 @@ class StructureParams:
     min_swing_candles: int               # C-05
     trend_change_confirmation: str = "SINGLE_BOS"   # MS-R014
     internal_only: bool = False          # yalnızca iç yapı (M1: swing eşiği henüz yok → liquidation için iç referanslar)
+    reacquire_ref: bool = True           # Q-S11 (hata düzeltmesi): iç referans kaybolduysa (Q-S03b / Q-S09-fail) yeniden ara; False = eski (kilitlenebilir) davranış
 
     def __post_init__(self) -> None:
         if self.pip_size <= 0 or (not self.internal_only and self.min_pullback_pips <= 0):
@@ -38,4 +39,4 @@ class StructureParams:
         cfg.require("structure_m1" if tf is Timeframe.M1 else "structure")
         return cls(cfg.pip_size(pair), cfg.swing_min_pullback_pips(pair, tf.value),
                    cfg.get("swing_threshold_inclusive"), cfg.get("min_swing_candles"),
-                   cfg.get("trend_change_confirmation"))
+                   cfg.get("trend_change_confirmation"), False, cfg.get("internal_ref_reacquire") is not False)

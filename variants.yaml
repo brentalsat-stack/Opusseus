@@ -53,6 +53,11 @@ variants:
     desc: "V0 + range_inside_rule=CLOSE"
     overrides: {range_inside_rule: CLOSE}
 
+  # ---- Q-S11 A/B: V0'ın ESKİ (kilitlenebilir) iç-yapı davranışı — yalnızca hatanın gerçek veride doğrulanması için (--only V0,V0L)
+  - name: V0L
+    desc: "V0 + internal_ref_reacquire=false (eski davranış; uzun koşuda aylarca CHoCH üretmeyebilir)"
+    overrides: {internal_ref_reacquire: false}
+
 # V7: işlemleri ETKİLEMEZ — taban varyantın işlemleri için V-shape N'e göre puan dağılımı (config'teki N dahil edilir)
 vshape_report:
   base: V0

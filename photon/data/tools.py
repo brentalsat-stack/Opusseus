@@ -59,6 +59,15 @@ def load_m1(cfg, source: str, pair: str, start: datetime, end: datetime) -> list
 _HEADER = ["time_utc", "bid_o", "bid_h", "bid_l", "bid_c", "ask_o", "ask_h", "ask_l", "ask_c", "n_ticks"]
 
 
+def data_bounds(cfg, source: str, pair: str) -> tuple[datetime, datetime] | None:
+    """Önbellekteki M1 verisinin [ilk, son] mum zamanı (UTC) — başlangıç/warm-up kontrolleri bununla yapılır (boş aralık sorgusuyla değil)."""
+    store = open_store(cfg)
+    try:
+        return store.bounds(source, pair, Timeframe.M1)
+    finally:
+        store.close()
+
+
 def export_csv(candles: Iterable[QuoteCandle], path: str | Path) -> int:
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)

@@ -120,3 +120,6 @@ python -m photon backtest-compare --start 2016-01-01 --end 2023-12-31 --periods 
 | M1 icra (V0, V1–V6, V9b) | 0.11 → 0.18 (≈ +%25 / her 2× uzunlukta) | ≈ 12 dk (gerçek veri olay yoğunluğuyla ≈ 15–25 dk) |
 | M15 icra (V8a/b/c, V9a) | 0.023 (400 gün) | ≈ 1–2 dk |
 2 çekirdekle 12 varyant (7 M1-profil + 5 M15-profil): ≈ (7×~20 + 5×~2) / 2 ≈ **75–90 dk** (yalnız `--only V0,V8a,V9a,V9b`: ≈ 25–30 dk). Her süreç veriyi önbellekten kendisi yükler (+≈0.5–1 dk). **Bellek:** süreç başına ≈ 1.6 KB/mum → 8 yılda **≈ 4–5 GB**; `--jobs 2` ≈ 10 GB RAM ister — RAM yetersizse `--jobs 1` kullanın (süre ≈ 2×).
+
+### --periods ve veri başlangıcı
+`--periods 2016..2023` veri `--start`tan SONRA başlıyorsa (ör. veri 2016-01-03, aralık 2016-01-01) artık "önbellekte M1 yok" hatası vermez: kontrol önbellek sınırlarına (`CandleStore.bounds`) bakar; veri aralıkla hiç kesişmiyorsa net mesajla çıkar (2), aksi halde uyarıyla (warm-up yok, koşu veri başından başlar) devam eder.

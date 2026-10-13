@@ -112,6 +112,9 @@ class StrategyRunner:
     def limit_report(self) -> dict:
         """Q-L3 uygulama sınırları yüzünden elenen/etkilenen durumların sayısı (backtest raporu için)."""
         rep = dict(self.model.stats)
+        for name, st in [("exec", self.m1_struct)] + [(tf.value, e) for tf, e in self.struct.items()]:      # yapı sağlığı: iç referanssız en uzun süre (kilitlenme göstergesi)
+            rep[f"struct_{name}_iref_none_max_run"] = st.iref_none_max_run
+            rep[f"struct_{name}_ref_reacquired"] = st.ref_reacquired
         for name, ze in [("m1", self.m1_zones)] + [(tf.value, e) for tf, e in self.zones_eng.items()]:
             for k, v in ze.limits.items():
                 rep[f"zones_{name}_{k}"] = v

@@ -168,6 +168,7 @@ MODULES: dict[str, ModuleSpec] = {
         R("swing_threshold_inclusive", is_bool),
         R("min_swing_candles", int_ge(1)),
         R("trend_change_confirmation", one_of("SINGLE_BOS", "DOUBLE_BOS")),
+        R("internal_ref_reacquire", is_bool),
     ), depends_on=("data",)),
     "structure_m1": ModuleSpec((  # M1 swing eşiği: U-13 / MS-R010 kalibrasyonu
         R(f"swing_min_pullback_pips.{PAIR}.M1", num_gt(0)),

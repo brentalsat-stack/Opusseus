@@ -345,14 +345,19 @@ def _compare_cmd(cfg, args) -> int:
     pair = args.pair or cfg.pairs[0]
     start, end = tools.day_range(args.start, args.end)
     warm = max(cfg.get(f"warmup_period.{tf}") for tf in ("D1", "H4", "M15", "M1"))
-    m1 = tools.load_m1(cfg, source, pair, start - timedelta(days=warm), start + timedelta(minutes=1))   # yalnız veri/warm-up kontrolü
-    if not m1:
+    bounds = tools.data_bounds(cfg, source, pair)           # önbellek sınırları (start'tan önce veri olmayabilir: ilk yıl)
+    if bounds is None:
         print("önbellekte M1 yok; önce `photon import-histdata` çalıştırın", file=sys.stderr)
         return 2
-    have = (start - m1[0].open_time).days
-    if have < warm:
-        print(f"UYARI warm-up: {warm} gün istendi, veri {m1[0].open_time:%Y-%m-%d} tarihinde başlıyor ({max(have, 0)} gün)", file=sys.stderr)
-    del m1
+    first, last = bounds
+    if last < start or first >= end:
+        print(f"önbellekteki veri ({first:%Y-%m-%d} → {last:%Y-%m-%d}) istenen aralıkla ({start:%Y-%m-%d} → {end:%Y-%m-%d}) kesişmiyor", file=sys.stderr)
+        return 2
+    have = (start - first).days
+    if first > start:
+        print(f"UYARI: veri {first:%Y-%m-%d} tarihinde başlıyor (istenen başlangıç {start:%Y-%m-%d}); warm-up yok, koşu veri başından başlar", file=sys.stderr)
+    elif have < warm:
+        print(f"UYARI warm-up: {warm} gün istendi, veri {first:%Y-%m-%d} tarihinde başlıyor ({max(have, 0)} gün) → mevcut verinin tamamı warm-up", file=sys.stderr)
     bal = Decimal(args.balance) if args.balance else Decimal(str(cfg.get("backtest.initial_balance")))
     jobs = args.jobs or min(os.cpu_count() or 1, len(spec.variants))
     print(f"{len(spec.variants)} varyant, {jobs} süreç ...")

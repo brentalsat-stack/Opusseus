@@ -16,6 +16,7 @@ from zoneinfo import ZoneInfo
 
 from ..data.tz import ISTANBUL
 from ..risk.stops import Side
+from ..structure.models import EventType
 from .engine import BacktestResult, Trade
 
 FOUR_R = Decimal(4)
@@ -188,6 +189,10 @@ def monthly_funnel(res: BacktestResult) -> list[dict]:
         while (y, mo) <= ((res.end - timedelta(seconds=1)).year, (res.end - timedelta(seconds=1)).month):
             m.setdefault(f"{y}-{mo:02d}", Counter())
             y, mo = (y + 1, 1) if mo == 12 else (y, mo + 1)
+    if res.runner is not None:                                           # icra yapı motorunun ay başına CHoCH sayısı (kilitlenme göstergesi)
+        for e in res.runner.m1_struct.events:
+            if e.type is EventType.CHOCH and not e.warmup:
+                m[f"{e.time:%Y-%m}"]["icra_choch"] += 1
     rows = []
     for k in sorted(m):
         c = m[k]
@@ -196,14 +201,15 @@ def monthly_funnel(res: BacktestResult) -> list[dict]:
         elif c["PERMISSION_OK"] == 0:
             why = "izin (EN-R006/Q-P1) geçmedi"
         elif c["CHOCH"] == 0:
-            why = "mitigasyon sonrası M1 CHoCH yok"
+            why = ("icra yapı motoru bu ay HİÇ CHoCH üretmedi (kilitlenme şüphesi: struct_exec_iref_none_max_run'a bakın)" if c["icra_choch"] == 0
+                   else "mitigasyon sonrası icra CHoCH'u yok (motor CHoCH üretiyor ama setup'a uymuyor)")
         elif c["SIGNAL"] == 0:
             why = "tüm girişler kapılarda elendi"
         elif c["dolum"] == 0:
             why = "sinyal var, dolum yok (iptal/dolmadı)"
         else:
             why = ""
-        rows.append({"ay": k, "poi": c["poi"], "mitigasyon": c["MITIGATED"], "izin_bekleme": c["izin_bekleme"],
+        rows.append({"ay": k, "poi": c["poi"], "icra_choch_olay": c["icra_choch"], "mitigasyon": c["MITIGATED"], "izin_bekleme": c["izin_bekleme"],
                      "izin_ok": c["PERMISSION_OK"], "choch": c["CHOCH"], "giris_zonu": c["ENTRY_ZONE_OK"],
                      "range_filter": c["gate_range_filter"], "liquidation": c["gate_liquidation"], "session": c["gate_session"],
                      "diger_kapi": c["gate_diger"], "sinyal": c["SIGNAL"], "iptal": c["iptal"], "dolum": c["dolum"], "neden": why})
@@ -211,7 +217,7 @@ def monthly_funnel(res: BacktestResult) -> list[dict]:
 
 
 def format_monthly_funnel(res: BacktestResult) -> str:
-    cols = [("ay", 8), ("poi", 5), ("mitigasyon", 11), ("izin_bekleme", 13), ("izin_ok", 8), ("choch", 6), ("giris_zonu", 11),
+    cols = [("ay", 8), ("poi", 5), ("icra_choch_olay", 16), ("mitigasyon", 11), ("izin_bekleme", 13), ("izin_ok", 8), ("choch", 6), ("giris_zonu", 11),
             ("range_filter", 13), ("liquidation", 12), ("session", 8), ("diger_kapi", 11), ("sinyal", 7), ("iptal", 6), ("dolum", 6)]
     L = ["  " + "".join(f"{n:>{w}}" for n, w in cols) + "  neden (dolum=0 ise)"]
     for r in monthly_funnel(res):
